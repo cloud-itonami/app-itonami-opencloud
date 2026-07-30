@@ -1,0 +1,237 @@
+;; What this server emulates, and how faithfully.
+;;
+;; A client that passes against this server has been checked against whatever
+;; this file describes and nothing else. That sentence is only useful if the
+;; file is true, so `opencloud.surfaces` checks the parts of it that can be
+;; checked: every declared operation is answered, every operation that is
+;; answered is declared, and every fidelity claim names the test that holds it.
+;;
+;; `:surface/not-emulated` is the most important field and the easiest to
+;; leave out. A client never exercises what is absent, so it believes that part
+;; works — the belief comes from the silence, not from any claim made here.
+
+{:catalog/id :opencloud-surfaces
+
+ :surfaces
+ [{:surface/id :aws
+   :surface/summary "EC2, S3, IAM and KMS over the query protocol and the S3 REST API"
+   :surface/operations
+   [:describe-instances :describe-security-groups :describe-volumes
+    :list-buckets :get-bucket-policy :get-bucket-acl :get-bucket-tagging
+    :get-bucket-location :list-roles :list-users :list-attached-role-policies
+    :get-role-policy :get-policy-version :list-access-keys :list-keys
+    :describe-key :get-key-policy]
+   :surface/fidelity
+   [{:fidelity/id :sigv4-verified
+     :fidelity/note "the signature is recomputed from the request; a wrong secret is refused"
+     :fidelity/test "test/opencloud/sigv4_verify_test.clj"}
+    {:fidelity/id :xml-responses
+     :fidelity/note "the query protocol's XML, not a JSON reskin"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :pagination-tokens
+     :fidelity/note "NextToken and IsTruncated, so a client that stops at page one is visible"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :error-shapes
+     :fidelity/note "ErrorResponse and the S3 Error document, with real codes"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :throttling
+     :fidelity/note "with --throttle-every, the query protocol answers 400 Throttling and S3 answers 503 SlowDown — different envelopes for the same condition, and neither is an empty result"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :regions
+     :fidelity/note "the signed scope decides which region answers; a region the account cannot read is AuthFailure and not an empty region, and global services answer the same everywhere so a fan-out that asks them per region counts them twice"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :stale-replica-reads
+     :fidelity/note "with --inconsistent-every, ListBuckets names a bucket and the next detail read answers 404 NoSuchBucket — one status away from the NoSuchBucketPolicy that means the opposite, so a client keying on status writes down `grants nothing` for a policy it never read. The listing stays authoritative, which is what makes the pair contradictory"
+     :fidelity/test "test/opencloud/aws_test.clj"}
+    {:fidelity/id :posture-denied-per-bucket
+     :fidelity/note "with --deny-posture <bucket>, GetBucketPolicyStatus and GetBucketPolicy answer 403 AccessDenied for one bucket while the rest of the account answers — the shape a least-privilege audit credential really has, and the case where substituting an empty PolicyStatus says `not public` about a public bucket"
+     :fidelity/test "test/opencloud/aws_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :read-after-write
+     :absent/note "no writes at all, so the consistency this server models is between two reads; a client that creates something and looks for it is not exercised"}
+    {:absent/id :cloudtrail
+     :absent/note "no event history, so a scanner that reads posture from trails rather than from the resource APIs is not exercised"}]}
+
+  {:surface/id :ecr
+   :surface/summary "the one AWS API here that is not the query protocol: a minted registry credential"
+   :surface/operations [:get-authorization-token]
+   :surface/fidelity
+   [{:fidelity/id :json-1-1-over-post
+     :fidelity/note "the operation is in X-Amz-Target and the body is JSON, both covered by the signature — so a client whose AWS layer only issues signed GETs cannot call it, and the way that failure presents is a 401 from a registry with no mention of AWS in it"
+     :fidelity/test "test/opencloud/ecr_test.clj"}
+    {:fidelity/id :minted-basic-credential
+     :fidelity/note "the token is base64 of AWS:<password> and opens the registry face, so the whole path — sign an AWS request, receive a short-lived password, present it as Basic auth — runs end to end"
+     :fidelity/test "test/opencloud/ecr_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :token-scope
+     :absent/note "one token opens every repository; ECR scopes by IAM policy, so a client that needs a different token per repository is not exercised"}
+    {:absent/id :repository-operations
+     :absent/note "no DescribeRepositories, DescribeImages or scan findings: ECR's own vulnerability results are not read"}]}
+
+  {:surface/id :sts
+   :surface/summary "AssumeRole, and the sessions it issues"
+   :surface/operations [:assume-role :assume-role-with-web-identity
+                        :get-caller-identity]
+   :surface/fidelity
+   [{:fidelity/id :session-credentials
+     :fidelity/note "a session has its own key, its own secret and a token that must be sent and signed; the caller's long-lived key does not open the other account and the session key does not open the caller's"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :untrusted-role-refused
+     :fidelity/note "a role that is not trusted is AccessDenied, which is the refusal a client must not paper over with its own credentials"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :assumed-account-answers-differently
+     :fidelity/note "the assumed account holds different resources, so a client that quietly fell back to its own credentials is visible"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :session-expiry
+     :fidelity/note "with --session-ttl-requests, a session past its life answers ExpiredToken — not InvalidClientTokenId, because one says renew and the other says the credential is wrong. Counted per session, so a renewed one is not expired on arrival"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :external-id
+     :fidelity/note "with --require-external-id, the trust condition every third-party scanner sits behind. A missing or wrong ExternalId is refused with a body byte-identical to the untrusted-role refusal — deliberately, so a caller cannot probe for it — which means the response can never tell an operator which mistake was made and the client has to report what it sent"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :role-chaining
+     :fidelity/note "a role reachable only from another session, so reading an organisation means signing the second AssumeRole with the first session's credentials; the base credential is refused. A chained session is capped at one hour and a longer DurationSeconds is a ValidationError, not a quietly shortened session"
+     :fidelity/test "test/opencloud/sts_test.clj"}
+    {:fidelity/id :web-identity
+     :fidelity/note "AssumeRoleWithWebIdentity is accepted unsigned, because there is nothing to sign it with — a client whose AWS layer cannot build a request without an access key never reaches it. With --web-identity-token the OIDC token is checked, and a rotated one is InvalidIdentityToken rather than ExpiredToken: the remedy is to read the file again, not to renew"
+     :fidelity/test "test/opencloud/sts_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :session-policies
+     :absent/note "the Policy and PolicyArns parameters are accepted and ignored, so a client that narrows its own session is not exercised — and neither is one that believes it did"}
+    {:absent/id :oidc-verification
+     :absent/note "the web identity token is compared to a configured string, not verified as a JWT against a provider's keys: signature, issuer, audience and expiry are not checked, so a client that mints its own token would be accepted here and refused by AWS"}]}
+
+  {:surface/id :azure
+   :surface/summary "Azure Resource Manager listings with bearer tokens"
+   :surface/operations
+   [:list-subscriptions :list-virtual-machines :list-storage-accounts
+    :list-role-assignments :list-role-definitions]
+   :surface/fidelity
+   [{:fidelity/id :bearer-required
+     :fidelity/note "a missing or wrong token is 401, not an empty list"
+     :fidelity/test "test/opencloud/azure_test.clj"}
+    {:fidelity/id :next-link-pagination
+     :fidelity/note "nextLink is an absolute URL built from the request host"
+     :fidelity/test "test/opencloud/azure_test.clj"}
+    {:fidelity/id :throttling
+     :fidelity/note "with --throttle-every, ARM answers 429 with Retry-After and x-ms-ratelimit-remaining-subscription-reads: the header is the only thing that says when to come back, so a client retrying on its own schedule is refused again"
+     :fidelity/test "test/opencloud/azure_test.clj"}
+    {:fidelity/id :more-than-one-subscription
+     :fidelity/note "the credential sees two subscriptions holding different resources, and the listing is paged — so a client that reads page one, or scans only the one it was configured with, is visible in what it misses rather than in an error. A subscription outside the tenant is 403 AuthorizationFailed, not an empty subscription, which catches a client pointed at the wrong one"
+     :fidelity/test "test/opencloud/azure_test.clj"}]
+   :surface/operations-note
+   "list-subscriptions is answered under /subscriptions"
+   :surface/not-emulated
+   [{:absent/id :aad :absent/note "no token issuance; the token is a fixed string"}
+    {:absent/id :management-groups
+     :absent/note "subscriptions are a flat list; no hierarchy, so a scanner that walks management groups to find subscriptions is not exercised"}
+    {:absent/id :resource-graph
+     :absent/note "no ARG query API, so a client that reads a subscription through Resource Graph instead of the per-provider listings is not exercised"}]}
+
+  {:surface/id :gcp
+   :surface/summary "Compute, Storage and Resource Manager with bearer tokens"
+   :surface/operations
+   [:list-projects :aggregated-list-instances :list-buckets
+    :get-bucket-iam-policy :get-project-iam-policy]
+   :surface/fidelity
+   [{:fidelity/id :bearer-required
+     :fidelity/test "test/opencloud/portability.cljc"}
+    {:fidelity/id :page-token-pagination
+     :fidelity/test "test/opencloud/portability.cljc"}
+    {:fidelity/id :throttling-in-two-shapes
+     :fidelity/note "with --throttle-every, a quota refusal alternates between 429 RESOURCE_EXHAUSTED and 403 with reason rateLimitExceeded — the second is a status that means `you may not` carrying a body that means `slow down`, so a client that classifies by status files it as a permanent permission gap and reports a smaller project"
+     :fidelity/test "test/opencloud/gcp_test.clj"}
+    {:fidelity/id :more-than-one-project
+     :fidelity/note "the credential sees two projects holding different resources, and projects.list is paged — so a client that reads page one, or scans only the project it was configured with, is visible in what it misses. A project it cannot see is 403 PERMISSION_DENIED, not an empty project. Bucket IAM resolves across every project because a GCS bucket name is global and the path carries none"
+     :fidelity/test "test/opencloud/gcp_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :oauth :absent/note "no token exchange"}
+    {:absent/id :folders-and-organizations
+     :absent/note "projects are a flat list; no folder or organization nodes, so a scanner that walks the resource hierarchy rather than listing projects is not exercised"}
+    {:absent/id :organization-policies}
+    {:absent/id :per-api-quotas
+     :absent/note "one counter for the whole face; the real service meters compute, storage and resource manager separately, so a client that backs off per API is not exercised"}]}
+
+  {:surface/id :kubernetes
+   :surface/summary "the API server's core and RBAC listings"
+   :surface/operations
+   [:list-namespaces :list-pods :list-services :list-service-accounts :list-secrets
+    :list-roles :list-cluster-roles :list-role-bindings
+    :list-cluster-role-bindings]
+   :surface/fidelity
+   [{:fidelity/id :typed-lists
+     :fidelity/note "PodList, ServiceList and the rest, with the continuation under metadata"
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}
+    {:fidelity/id :bearer-required
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}
+    {:fidelity/id :verbs-refused
+     :fidelity/note "a write is 403 Forbidden rather than accepted"
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}
+    {:fidelity/id :continue-is-a-position
+     :fidelity/note "a marker that is not a position is refused, so a client that appends to its own URL is caught"
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}
+    {:fidelity/id :namespace-discovery
+     :fidelity/note "with --namespace-discovery, /api/v1/namespaces answers with the namespaces the cluster's objects are really in — and it is itself a cluster-scoped read, so without that flag it is refused like every other one and the client has to be told. Both halves matter: a client that never asks makes an operator remember, and a client that treats the refusal as `no namespaces` scans nothing"
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}
+    {:fidelity/id :namespaced-paths
+     :fidelity/note "with --namespaced-only, a cluster-wide list is 403 Forbidden naming the scope and only /api/v1/namespaces/<ns>/... answers — so a client that reads the refusal as an empty cluster is caught, and a cluster-scoped kind still has no namespaced path to fall back to"
+     :fidelity/test "test/opencloud/kubernetes_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :watch :absent/note "no streaming; only list"}
+    {:absent/id :admission}
+    {:absent/id :subject-access-review
+     :absent/note "no SelfSubjectAccessReview or SelfSubjectRulesReview, so a client that asks the API server what it may do — rather than finding out by being refused — is not exercised"}]}
+
+  {:surface/id :oci-registry
+   :surface/summary "OCI Distribution v2, pull only"
+   :surface/operations
+   [:api-version-check :token :get-manifest :get-blob :list-tags]
+   :surface/fidelity
+   [{:fidelity/id :token-challenge
+     :fidelity/note "401 with WWW-Authenticate naming the realm; the token is checked and is scoped to one repository"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :content-negotiation
+     :fidelity/note "Accept decides whether an index or an image manifest comes back"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :digests-over-real-bytes
+     :fidelity/note "layers are built at boot and addressed by the digest of what is served"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :link-header-pagination
+     :fidelity/note "tags page with a Link header, not a field in the body"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :redirected-blobs
+     :fidelity/note "with --redirect-blobs, a blob is a 307 to another host that refuses the registry's token — a client that carries the header across the hop is caught"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :two-layer-compressions
+     :fidelity/note "acme/zstd is zstd throughout and acme/mixed-compression is gzip below zstd, which is what a rebuild on a newer buildkit produces. The manifest names the algorithm; the blob is just bytes and its digest checks out either way, so a client reading it with the wrong decompressor finds nothing rather than failing — and in the mixed image that means reporting the older, vulnerable version of a package the top layer upgraded"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :credential-expiry
+     :fidelity/note "with --registry-ttl-requests, a credential runs out mid-scan and the refusal is the ordinary 401 — indistinguishable from a wrong password, because to a registry those are the same thing. Counted since the credential was last minted, so a client that renews correctly is not expired on arrival"
+     :fidelity/test "test/opencloud/registry_test.clj"}
+    {:fidelity/id :basic-auth
+     :fidelity/note "with --registry-basic-auth, the challenge names Basic instead of Bearer, there is no token endpoint to exchange at, and the credential must be on every request — the shape Harbor, Artifactory and GitLab use, where a token-only client finds no realm to follow"
+     :fidelity/test "test/opencloud/registry_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :push :absent/note "pull only: no upload, no delete"}
+    {:absent/id :credential-minting
+     :absent/note "no ECR GetAuthorizationToken and no metadata-server identity: a client that mints a short-lived registry credential from a cloud role, rather than being handed one, is not exercised. ECR would need the AWS JSON protocol over POST, which no face here speaks"}
+    {:absent/id :other-compressions
+     :absent/note "gzip and zstd only: no uncompressed layers and no estargz, so a client that assumes every layer is compressed at all is not exercised"}]}
+
+  {:surface/id :osv
+   :surface/summary "the OSV query API"
+   :surface/operations [:query :querybatch :get-vuln]
+   :surface/fidelity
+   [{:fidelity/id :batch-returns-identifiers-only
+     :fidelity/note "querybatch answers with id and modified; a client that stops there holds no ranges"
+     :fidelity/test "test/opencloud/advisory_test.clj"}
+    {:fidelity/id :page-token-is-a-position
+     :fidelity/note "a token this server did not issue is refused"
+     :fidelity/test "test/opencloud/advisory_test.clj"}
+    {:fidelity/id :unknown-id-is-404
+     :fidelity/test "test/opencloud/advisory_test.clj"}
+    {:fidelity/id :throttling
+     :fidelity/note "with --throttle-every, every nth request is a 429 with Retry-After; a client that reads it as an answer reports a throttled scan as a clean fleet"
+     :fidelity/test "test/opencloud/advisory_test.clj"}]
+   :surface/not-emulated
+   [{:absent/id :ecosystem-archives
+     :absent/note "no all.zip export"}]}]}

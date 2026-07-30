@@ -1,0 +1,43 @@
+;; A deterministic Azure subscription. The bearer token is published on
+;; purpose: this is a verification target, not a secret store.
+{:subscription-id "00000000-0000-0000-0000-00000000dead"
+ :page-size 1
+ :tenant-id "00000000-0000-0000-0000-00000000beef"
+ :token "opencloud-azure-token"
+ :virtual-machines
+ [{:name "web-1" :resource-group "prod" :location "japaneast"
+   :size "Standard_D2s_v5" :identity "11111111-1111-1111-1111-111111111111"
+   :tags {"env" "prod"}}
+  {:name "batch-1" :resource-group "prod" :location "japaneast"
+   :size "Standard_B2s"}]
+ :storage-accounts
+ [{:name "payrollarchive" :resource-group "prod" :location "japaneast"
+   :public? false :https-only? true :encrypted? true}
+  {:name "reportspublic" :resource-group "prod" :location "japaneast"
+   :public? true :https-only? false :encrypted? true}]
+ ;; the tenant has more than one subscription, and the credential can see
+ ;; both. A client pointed at one of them reports a clean tenant while the
+ ;; storage account anyone on the internet can read sits in the other — and
+ ;; nothing in that report says a second subscription exists
+ :subscriptions
+ [{:subscription-id "00000000-0000-0000-0000-00000000dead"
+   :display-name "prod" :state "Enabled"}
+  {:subscription-id "00000000-0000-0000-0000-0000000000fe"
+   :display-name "legacy-sandbox" :state "Enabled"}]
+
+ :other-subscriptions
+ {"00000000-0000-0000-0000-0000000000fe"
+  {:subscription-id "00000000-0000-0000-0000-0000000000fe"
+   :virtual-machines [{:name "sandbox-1" :resource-group "sandbox"
+                       :location "japaneast" :size "Standard_B1s"}]
+   :storage-accounts [{:name "sandboxdrop" :resource-group "sandbox"
+                       :location "japaneast"
+                       :public? true :https-only? false :encrypted? false}]
+   :role-assignments []}}
+
+ :role-assignments
+ [{:id "22222222-2222-2222-2222-222222222222"
+   :role-definition "/subscriptions/00000000-0000-0000-0000-00000000dead/providers/Microsoft.Authorization/roleDefinitions/8e3af657-a8ff-443c-a75c-2fe8c4bcb635"
+   :principal "11111111-1111-1111-1111-111111111111"
+   :principal-type "ServicePrincipal"
+   :scope "/subscriptions/00000000-0000-0000-0000-00000000dead"}]}

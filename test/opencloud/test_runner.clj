@@ -1,0 +1,27 @@
+(ns opencloud.test-runner
+  (:require [clojure.test :as test]
+            [opencloud.aws-test]
+            [opencloud.advisory-test]
+            [opencloud.azure-test]
+            [opencloud.ecr-test]
+            [opencloud.gcp-test]
+            [opencloud.kubernetes-test]
+            [opencloud.registry-test]
+            [opencloud.sts-test]
+            [opencloud.surfaces-test]
+            [opencloud.sigv4-verify-test]
+            [opencloud.wire-test]))
+
+(defn -main [& _]
+  (let [{:keys [fail error]} (test/run-tests 'opencloud.wire-test
+                                             'opencloud.sigv4-verify-test
+                                             'opencloud.aws-test
+                                             'opencloud.advisory-test
+                                             'opencloud.azure-test
+                                             'opencloud.ecr-test
+                                             'opencloud.gcp-test
+                                             'opencloud.kubernetes-test
+                                             'opencloud.registry-test
+                                             'opencloud.sts-test
+                                             'opencloud.surfaces-test)]
+    (when (pos? (+ fail error)) (System/exit 1))))

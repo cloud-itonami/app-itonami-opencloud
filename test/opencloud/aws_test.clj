@@ -1,0 +1,243 @@
+(ns opencloud.aws-test
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [opencloud.aws :as aws]))
+
+(def seed (edn/read-string (slurp (io/file "resources/seed/aws.edn"))))
+
+(defn- query [action & [params]]
+  (aws/handle-query {:seed seed
+                     :query (merge {"Action" action} params)
+                     :principal (first (vals (:accounts seed)))}))
+
+(defn- body [response] (:body response))
+
+(deftest every-allowlisted-action-answers
+  ;; the actions a posture client is permitted to call must all be answerable,
+  ;; or the server verifies less than it appears to
+  (doseq [action (keys aws/query-actions)]
+    (let [params (case action
+                   ("ListAttachedRolePolicies" "ListRolePolicies")
+                   {"RoleName" "web-role"}
+                   ("ListAttachedUserPolicies" "ListUserPolicies"
+                    "ListAccessKeys" "ListMFADevices")
+                   {"UserName" "opencloud"}
+                   "GetRolePolicy" {"RoleName" "web-role"
+                                    "PolicyName" "assume-deploy"}
+                   "GetUserPolicy" {"UserName" "legacy-deploy"
+                                    "PolicyName" "legacy-bucket-write"}
+                   ("GetPolicy" "GetPolicyVersion")
+                   {"PolicyArn" "arn:aws:iam::123456789012:policy/web-read"
+                    "VersionId" "v3"}
+                   "GetAccessKeyLastUsed" {"AccessKeyId" "AKIAOPENCLOUDEXAMPLE"}
+                   ("DescribeKey" "GetKeyPolicy") {"KeyId" "k-payroll"}
+                   {})
+          response (query action params)]
+      (is (= 200 (:status response)) (str action " -> " (:body response))))))
+
+(deftest an-unknown-action-is-refused-not-answered-emptily
+  (let [response (query "DeleteEverything")]
+    (is (= 400 (:status response)))
+    (is (str/includes? (body response) "InvalidAction")))
+  (let [response (aws/handle-query {:seed seed :query {} :principal {}})]
+    (is (= 400 (:status response)))
+    (is (str/includes? (body response) "MissingAction"))))
+
+(deftest the-query-protocol-uses-the-wrappers-each-service-really-uses
+  ;; EC2 wraps list members in <item>, IAM and RDS in <member>. A client that
+  ;; assumes one shape for both reads an empty list from the other.
+  (is (str/includes? (body (query "DescribeInstances")) "<instancesSet><item>"))
+  (is (str/includes? (body (query "ListRoles")) "<Roles><member>"))
+  (is (str/includes? (body (query "DescribeDBInstances"))
+                     "<DBInstances><member>")))
+
+(deftest lists-paginate-with-the-token-their-service-uses
+  ;; the seed sets a page size of 2 so pagination is exercised by default
+  (let [first-page (body (query "ListRoles"))]
+    (is (str/includes? first-page "<IsTruncated>true</IsTruncated>"))
+    (is (str/includes? first-page "<Marker>2</Marker>"))
+    (let [last-page (body (query "ListRoles" {"Marker" "4"}))]
+      (is (str/includes? last-page "<IsTruncated>false</IsTruncated>"))
+      (is (not (str/includes? last-page "<Marker>")))))
+  (is (str/includes? (body (query "DescribeInstances")) "<nextToken>2</nextToken>"))
+  (is (not (str/includes? (body (query "DescribeInstances" {"NextToken" "2"}))
+                          "<nextToken>"))))
+
+(deftest a-role-carries-its-trust-policy-url-encoded
+  (let [document (body (query "ListRoles"))]
+    (is (str/includes? document "<AssumeRolePolicyDocument>%7B%22"))
+    ;; and it is the real document, not a placeholder
+    (is (str/includes? document "sts%3AAssumeRole"))))
+
+(deftest a-referenced-entity-that-does-not-exist-is-a-404
+  (is (= 404 (:status (query "GetPolicy" {"PolicyArn" "arn:aws:iam::1:policy/x"}))))
+  (is (= 404 (:status (query "GetRolePolicy" {"RoleName" "web-role"
+                                              "PolicyName" "absent"})))))
+
+;; --- S3 ---------------------------------------------------------------------
+
+(defn- s3 [path query*]
+  (aws/handle-s3 {:seed seed :host "127.0.0.1:4599" :path path :query query*}))
+
+(deftest s3-answers-rest-subresources-and-its-own-error-envelope
+  (is (str/includes? (body (s3 "/" {})) "<ListAllMyBucketsResult>"))
+  (is (str/includes? (body (s3 "/payroll-archive" {"policyStatus" ""}))
+                     "<IsPublic>false</IsPublic>"))
+  (is (str/includes? (body (s3 "/payroll-archive" {"tagging" ""}))
+                     "<Tag><Key>sensitive</Key><Value>true</Value></Tag>"))
+  (is (str/includes? (body (s3 "/payroll-archive" {"policy" ""})) "PartnerRead"))
+  ;; absent configuration is a 404 with the S3 error shape, exactly as the
+  ;; real service answers — a client that reads it as "not public" is wrong
+  (let [response (s3 "/reports-public" {"encryption" ""})]
+    (is (= 404 (:status response)))
+    (is (str/includes? (body response)
+                       "ServerSideEncryptionConfigurationNotFoundError"))
+    (is (not (str/includes? (body response) "<ErrorResponse>"))))
+  (let [response (s3 "/reports-public" {"publicAccessBlock" ""})]
+    (is (= 404 (:status response)))
+    (is (str/includes? (body response) "NoSuchPublicAccessBlockConfiguration")))
+  (let [response (s3 "/build-artifacts" {"policy" ""})]
+    (is (= 404 (:status response)))
+    (is (str/includes? (body response) "NoSuchBucketPolicy")))
+  (is (= 404 (:status (s3 "/no-such-bucket" {"policy" ""})))))
+
+(deftest the-seed-contains-the-whole-chain-a-posture-client-should-find
+  ;; if this seed ever stops describing a complete escalation path, a client
+  ;; passing against it proves less than it appears to
+  (let [roles (into {} (map (juxt :name identity) (:roles seed)))
+        bucket (first (filter #(= "payroll-archive" (:name %)) (:buckets seed)))]
+    (is (= "arn:aws:iam::123456789012:role/web-role"
+           (:instance-profile (first (:instances seed)))))
+    (is (some? (get roles "deploy-role")))
+    (is (str/includes? (pr-str (get-in roles ["deploy-role" :trust]))
+                       "role/web-role"))
+    (is (str/includes? (pr-str (:policy bucket)) "role/deploy-role"))
+    (is (= "true" (get (:tags bucket) "sensitive")))
+    ;; and the shapes a rule needs to fire on
+    (is (= "*" (get-in roles ["open-role" :trust "Statement" 0 "Principal"])))
+    (is (some #(false? (:encrypted? %)) (:databases seed)))))
+
+(deftest a-key-policy-is-served-as-the-json-string-kms-really-returns
+  (let [policy (body (query "GetKeyPolicy" {"KeyId" "k-payroll"}))]
+    ;; KMS nests a JSON document inside XML rather than nesting elements; a
+    ;; client that expects elements finds none and reads the key as unshared
+    (is (str/includes? policy "<Policy>"))
+    (is (str/includes? policy "&quot;Effect&quot;"))
+    (is (str/includes? policy "999988887777")))
+  (is (str/includes? (body (query "ListKeys")) "<Keys><member>"))
+  (is (str/includes? (body (query "DescribeKey" {"KeyId" "k-payroll"}))
+                     "<KeyManager>CUSTOMER</KeyManager>"))
+  (is (= 404 (:status (query "DescribeKey" {"KeyId" "absent"}))))
+  ;; the bucket names the key that protects it, or nothing downstream can link
+  ;; the two
+  (is (str/includes? (body (s3 "/payroll-archive" {"encryption" ""}))
+                     "<KMSMasterKeyID>arn:aws:kms:")))
+
+(deftest a-throttle-is-a-refusal-in-each-protocols-own-shape
+  (let [throttling (assoc seed :throttle-every 2 :request-count 1)
+        query-response (aws/handle-query {:seed throttling
+                                          :query {"Action" "DescribeInstances"}
+                                          :principal {}})
+        s3-response (aws/handle-s3 {:seed throttling :host "s3.amazonaws.com"
+                                    :path "/" :query {}})]
+    ;; the query protocol says 400 Throttling and S3 says 503 SlowDown, in
+    ;; different envelopes: a client that assumes one shape for both breaks
+    (is (= 400 (:status query-response)))
+    (is (str/includes? (:body query-response) "<Code>Throttling</Code>"))
+    (is (str/includes? (:body query-response) "<ErrorResponse>"))
+
+    (is (= 503 (:status s3-response)))
+    (is (str/includes? (:body s3-response) "<Code>SlowDown</Code>"))
+    (is (not (str/includes? (:body s3-response) "<ErrorResponse>")))
+    (is (= "1" (get-in s3-response [:headers "retry-after"])))
+
+    ;; and neither is an empty result: a client that reads one as one reports
+    ;; a partial inventory as a complete estate
+    (is (not (str/includes? (:body query-response) "reservationSet")))
+    (is (not (str/includes? (:body s3-response) "ListAllMyBucketsResult")))))
+
+(deftest a-request-that-is-not-the-nth-is-answered
+  (let [throttling (assoc seed :throttle-every 3 :request-count 0)]
+    (is (= 200 (:status (aws/handle-query {:seed throttling
+                                           :query {"Action" "DescribeInstances"}
+                                           :principal {}}))))))
+
+(deftest a-regional-listing-answers-for-its-own-region
+  (let [in (fn [region]
+             (:body (aws/handle-query {:seed seed :region region
+                                       :query {"Action" "DescribeInstances"}
+                                       :principal {}})))]
+    ;; a client that asks three regions and gets the same answer three times
+    ;; counts every instance three times
+    (is (str/includes? (in "ap-northeast-1") "web-1"))
+    (is (not (str/includes? (in "ap-northeast-1") "eu-batch-1")))
+    (is (str/includes? (in "eu-west-1") "eu-batch-1"))
+    (is (not (str/includes? (in "eu-west-1") "web-1")))))
+
+(deftest a-region-the-account-cannot-read-is-an-auth-failure
+  (let [response (aws/handle-query {:seed seed :region "sa-east-1"
+                                    :query {"Action" "DescribeInstances"}
+                                    :principal {}})]
+    ;; a client that reads this as an empty region reports the estate as
+    ;; smaller than it is, for exactly the regions nobody is watching
+    (is (= 401 (:status response)))
+    (is (str/includes? (:body response) "<Code>AuthFailure</Code>"))
+    (is (not (str/includes? (:body response) "reservationSet")))))
+
+(deftest a-request-with-no-region-is-not-a-request-for-nothing
+  ;; the unit callers here do not sign a scope; answering them with an empty
+  ;; estate would be the same failure wearing a different hat
+  (is (str/includes? (:body (aws/handle-query {:seed seed
+                                               :query {"Action" "DescribeInstances"}
+                                               :principal {}}))
+                     "web-1")))
+
+(deftest a-stale-replica-contradicts-the-listing-that-named-the-bucket
+  ;; the shape eventual consistency really takes in a scan: ListBuckets names
+  ;; a bucket, and the very next detail read says it does not exist. 404 is
+  ;; already how S3 says `this bucket has no policy`, so the two are one
+  ;; status apart and opposite facts.
+  (let [stale (assoc seed :inconsistent-every 1 :request-count 0)
+        ask (fn [seed* subresource]
+              (aws/handle-s3 {:seed seed* :method "GET"
+                              :host "reports-public.s3.ap-northeast-1.amazonaws.com"
+                              :path "/" :query {subresource ""}}))]
+    (doseq [query ["policyStatus" "policy" "encryption" "publicAccessBlock"
+                   "tagging"]]
+      (let [{:keys [status body]} (ask stale query)]
+        (is (= 404 status) query)
+        (is (str/includes? body "NoSuchBucket") query)
+        (is (not (str/includes? body "NoSuchBucketPolicy"))
+            (str query ": the code is what tells a stale read from a real "
+                 "absence, and these two share a status"))))
+    ;; the listing itself stays authoritative — that is what makes the pair
+    ;; contradictory rather than merely empty
+    (is (= 200 (:status (aws/handle-s3 {:seed stale :method "GET"
+                                        :host "s3.ap-northeast-1.amazonaws.com"
+                                        :path "/" :query {}}))))
+    ;; and the genuine absence keeps its own code
+    (let [{:keys [status body]} (ask seed "policy")]
+      (is (= 404 status))
+      (is (str/includes? body "NoSuchBucketPolicy")))))
+
+(deftest a-posture-the-credential-may-not-read-is-403-not-empty
+  (let [denied (assoc seed :posture-denied "reports-public")
+        ask (fn [bucket subresource]
+              (aws/handle-s3 {:seed denied :method "GET"
+                              :host (str bucket ".s3.ap-northeast-1.amazonaws.com")
+                              :path "/" :query {subresource ""}}))]
+    (doseq [query ["policyStatus" "policy"]]
+      (let [{:keys [status body]} (ask "reports-public" query)]
+        (is (= 403 status) query)
+        (is (str/includes? body "AccessDenied") query)))
+    ;; only that bucket, and only its posture: the rest of the account still
+    ;; answers, which is what a real least-privilege audit credential looks
+    ;; like
+    ;; this bucket really has no default encryption, and that answer still
+    ;; comes back with its own code — the denial covers the posture calls, not
+    ;; the bucket
+    (is (str/includes? (:body (ask "reports-public" "encryption"))
+                       "ServerSideEncryptionConfigurationNotFoundError"))
+    (is (= 200 (:status (ask "payroll-archive" "policy"))))))

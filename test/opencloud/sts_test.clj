@@ -1,0 +1,181 @@
+(ns opencloud.sts-test
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [opencloud.aws :as aws]
+            [opencloud.sts :as sts]))
+
+(def seed (edn/read-string (slurp (io/file "resources/seed/aws.edn"))))
+
+(defn- assume [role]
+  (sts/handle {:seed seed :query {"Action" "AssumeRole" "RoleArn" role
+                                  "RoleSessionName" "opencloud"}}))
+
+(deftest a-trusted-role-issues-a-session-with-a-token
+  (let [response (assume "arn:aws:iam::222222222222:role/SecurityAudit")]
+    (is (= 200 (:status response)))
+    ;; the session token is the part a client forgets: it must be sent and it
+    ;; must be signed, and a request without it is refused in a way that
+    ;; reads as bad credentials
+    (is (str/includes? (:body response) "<SessionToken>"))
+    (is (str/includes? (:body response) "<AccessKeyId>ASIA"))
+    (is (str/includes? (:body response)
+                       "arn:aws:sts::222222222222:assumed-role/SecurityAudit/opencloud"))))
+
+(deftest a-role-that-is-not-trusted-is-refused
+  (let [response (assume "arn:aws:iam::999999999999:role/Whatever")]
+    ;; and this is the refusal a client must not paper over with its own
+    ;; credentials: doing so reports its own account under another's name
+    (is (= 403 (:status response)))
+    (is (str/includes? (:body response) "<Code>AccessDenied</Code>"))
+    (is (not (str/includes? (:body response) "SessionToken"))))
+  (is (= 400 (:status (assume "not-an-arn"))))
+  (is (= 400 (:status (sts/handle {:seed seed
+                                   :query {"Action" "AssumeRole"}})))))
+
+(deftest a-session-verifies-against-its-own-secret
+  (let [sessions (sts/sessions seed)
+        [key* session] (first sessions)]
+    (is (str/starts-with? key* "ASIA"))
+    (is (= "222222222222" (:account-id session)))
+    ;; the long-lived key must not open the session's account and the session
+    ;; key must not open the caller's
+    (is (not (contains? (:accounts seed) key*)))
+    (is (not= (:secret-access-key session)
+              (get-in seed [:accounts "AKIAOPENCLOUDEXAMPLE" :secret-access-key])))))
+
+(deftest an-assumed-session-sees-the-other-accounts-estate
+  (let [caller {:account-id "123456789012"}
+        assumed {:account-id "222222222222"}
+        ours (:body (aws/handle-query {:seed (aws/for-principal seed caller)
+                                       :region "ap-northeast-1"
+                                       :query {"Action" "DescribeInstances"}
+                                       :principal caller}))
+        theirs (:body (aws/handle-query {:seed (aws/for-principal seed assumed)
+                                         :region "ap-northeast-1"
+                                         :query {"Action" "DescribeInstances"}
+                                         :principal assumed}))]
+    ;; without this the fallback bug is invisible: a client that quietly used
+    ;; its own credentials would get the same answer either way
+    (is (str/includes? ours "web-1"))
+    (is (not (str/includes? ours "audit-target-1")))
+    (is (str/includes? theirs "audit-target-1"))
+    (is (not (str/includes? theirs "web-1")))))
+
+(deftest an-unknown-sts-action-is-refused
+  (is (= 400 (:status (sts/handle {:seed seed
+                                   :query {"Action" "GetFederationToken"}})))))
+
+(deftest an-expired-session-says-so-rather-than-looking-like-a-bad-key
+  (let [session {:session? true :account-id "222222222222"}
+        long-lived {:account-id "123456789012"}
+        seed* (assoc seed :session-ttl-requests 3)]
+    ;; the two errors look alike and mean opposite things: one says renew,
+    ;; the other says your credentials are wrong
+    (is (not (sts/session-expired? seed* session 3)))
+    (is (sts/session-expired? seed* session 4))
+    ;; a long-lived credential does not expire mid-scan
+    (is (not (sts/session-expired? seed* long-lived 99)))
+    ;; and with no ttl configured nothing expires
+    (is (not (sts/session-expired? seed session 99)))
+
+    (is (= 403 (:status sts/expired-token-error)))
+    (is (str/includes? (:body sts/expired-token-error) "<Code>ExpiredToken</Code>"))
+    (is (not (str/includes? (:body sts/expired-token-error)
+                            "InvalidClientTokenId")))))
+
+(deftest an-external-id-is-refused-the-same-way-an-untrusted-role-is
+  ;; the confused-deputy control every third-party scanner sits behind: the
+  ;; customer's trust policy names an ExternalId, and the refusal for a
+  ;; missing one is worded exactly like the refusal for a role that is not
+  ;; trusted at all. That is deliberate — telling them apart would let a
+  ;; caller probe for the secret — and it means the response can never tell an
+  ;; operator which mistake was made.
+  (let [role "arn:aws:iam::222222222222:role/SecurityAudit"
+        guarded (assoc seed :external-ids {role "tenant-7f3a"})
+        ask (fn [seed* & [external-id]]
+              (sts/assume-role
+               {:seed seed*
+                :query (cond-> {"RoleArn" role "RoleSessionName" "s"}
+                         external-id (assoc "ExternalId" external-id))}))
+        untrusted (sts/assume-role
+                   {:seed seed
+                    :query {"RoleArn" "arn:aws:iam::444444444444:role/Nope"
+                            "RoleSessionName" "s"}})]
+    (is (= 200 (:status (ask guarded "tenant-7f3a"))))
+    (is (= 403 (:status (ask guarded))))
+    (is (= 403 (:status (ask guarded "guessed"))))
+    ;; byte-identical to the untrusted-role refusal, which is the whole point
+    (is (= (:body untrusted)
+           (str/replace (:body (ask guarded))
+                        "arn:aws:iam::222222222222:role/SecurityAudit"
+                        "arn:aws:iam::444444444444:role/Nope"))
+        "a client cannot diagnose this from the response; it has to report
+         what it sent")
+    ;; and the control does not leak into an account that does not use it
+    (is (= 200 (:status (ask seed))))))
+
+(deftest a-chained-role-is-not-reachable-from-the-base-credential
+  ;; reading an organisation means assuming the management account's role and
+  ;; then a role in each member account **from that session**. A client that
+  ;; signs the second AssumeRole with its own credentials is refused, and the
+  ;; refusal is the same AccessDenied everything else here gives.
+  (let [member "arn:aws:iam::333333333333:role/MemberAccountAudit"
+        ask (fn [principal & [duration]]
+              (sts/assume-role
+               {:seed seed :principal principal
+                :query (cond-> {"RoleArn" member "RoleSessionName" "s"}
+                         duration (assoc "DurationSeconds" (str duration)))}))]
+    (is (= 403 (:status (ask nil))))
+    (is (= 403 (:status (ask {:session? false}))))
+    (is (= 200 (:status (ask {:session? true}))))
+    ;; AWS caps a chained session at an hour and refuses a longer request
+    ;; rather than quietly shortening it — a client that asks for twelve and
+    ;; assumes it got them plans a scan around a session that never existed
+    (is (= 200 (:status (ask {:session? true} 3600))))
+    (let [{:keys [status body]} (ask {:session? true} 43200)]
+      (is (= 400 status))
+      (is (str/includes? body "ValidationError"))
+      (is (str/includes? body "role chaining")))))
+
+(deftest the-one-call-that-carries-no-aws-credential
+  ;; how a scanner on EKS or in a CI job authenticates: a workload identity
+  ;; provider writes a short-lived OIDC token to a file, and the token is the
+  ;; credential. This inverts a client's usual order — every other AWS call
+  ;; needs credentials before it can be made, and this one produces them.
+  (let [role "arn:aws:iam::222222222222:role/SecurityAudit"
+        guarded (assoc seed :web-identity-token "issued.by.the.provider")
+        ask (fn [seed* token]
+              (sts/handle
+               {:seed seed*
+                :query (cond-> {"Action" "AssumeRoleWithWebIdentity"
+                                "RoleArn" role "RoleSessionName" "s"}
+                         token (assoc "WebIdentityToken" token))}))]
+    (let [{:keys [status body]} (ask guarded "issued.by.the.provider")]
+      (is (= 200 status))
+      ;; the session belongs to the assumed account, not the caller's
+      (is (str/includes? body "ASIA222222222222"))
+      ;; and it carries the subject, which is what an audit trail records
+      (is (str/includes? body "SubjectFromWebIdentityToken")))
+
+    ;; the provider rewrites this file — every hour on EKS — and a client
+    ;; that read it once and kept it presents the old one. `InvalidIdentityToken`
+    ;; and not `ExpiredToken`: the remedy is to read the file again, not to
+    ;; renew a session, and a client matching only the latter gives up on a
+    ;; scan a re-read would have finished
+    (let [{:keys [status body]} (ask guarded "read.an.hour.ago")]
+      (is (= 400 status))
+      (is (str/includes? body "InvalidIdentityToken"))
+      (is (not (str/includes? body "ExpiredToken"))))
+
+    (is (= 400 (:status (ask guarded nil))))
+
+    ;; a role this identity may not assume is the same AccessDenied every
+    ;; other refusal here gives
+    (is (= 403 (:status (sts/handle
+                         {:seed guarded
+                          :query {"Action" "AssumeRoleWithWebIdentity"
+                                  "RoleArn" "arn:aws:iam::444444444444:role/No"
+                                  "RoleSessionName" "s"
+                                  "WebIdentityToken" "issued.by.the.provider"}}))))))

@@ -1,0 +1,67 @@
+;; A deterministic cluster.
+;;
+;; Like the AWS seed, the contents are chosen: a LoadBalancer fronts a pod
+;; whose service account can read a secret, and a second pod can escape onto
+;; the node it shares with the first. A KSPM client that finds neither has a
+;; gap. The bearer token is published on purpose.
+
+{:cluster "prod-cluster"
+ :token "opencloud-kubernetes-token"
+ :page-size 1
+
+ :pods
+ [{"metadata" {"name" "storefront" "namespace" "shop" "labels" {"app" "web"}}
+   "spec" {"serviceAccountName" "web-sa" "nodeName" "node-1"
+           "containers" [{"name" "web" "image" "registry.invalid/web:1.4"}]}}
+  {"metadata" {"name" "node-agent" "namespace" "shop" "labels" {"app" "agent"}}
+   "spec" {"serviceAccountName" "agent-sa" "nodeName" "node-1"
+           "hostPID" true
+           "volumes" [{"name" "root" "hostPath" {"path" "/"}}]
+           "containers" [{"name" "agent" "image" "registry.invalid/agent:2"
+                          "securityContext" {"privileged" true}}]}}
+  {"metadata" {"name" "batch" "namespace" "shop" "labels" {"app" "batch"}}
+   "spec" {"automountServiceAccountToken" false "nodeName" "node-2"
+           "containers" [{"name" "batch" "image" "registry.invalid/batch:7"}]}}]
+
+ :services
+ [{"metadata" {"name" "storefront" "namespace" "shop"}
+   "spec" {"type" "LoadBalancer" "selector" {"app" "web"}
+           "ports" [{"port" 443}]}
+   "status" {"loadBalancer" {"ingress" [{"ip" "203.0.113.90"}]}}}
+  {"metadata" {"name" "batch-internal" "namespace" "shop"}
+   "spec" {"type" "ClusterIP" "selector" {"app" "batch"}
+           "ports" [{"port" 8080}]}}]
+
+ :service-accounts
+ [{"metadata" {"name" "web-sa" "namespace" "shop"}}
+  {"metadata" {"name" "agent-sa" "namespace" "shop"}}
+  {"metadata" {"name" "default" "namespace" "shop"}}]
+
+ :roles
+ [{"metadata" {"name" "secret-reader" "namespace" "shop"}
+   "rules" [{"apiGroups" [""] "resources" ["secrets"] "verbs" ["get" "list"]}]}]
+
+ :cluster-roles
+ [{"metadata" {"name" "cluster-admin"}
+   "rules" [{"apiGroups" ["*"] "resources" ["*"] "verbs" ["*"]}]}
+  {"metadata" {"name" "view"}
+   "rules" [{"apiGroups" [""] "resources" ["pods"] "verbs" ["get" "list"]}]}]
+
+ :role-bindings
+ [{"metadata" {"name" "web-reads-secrets" "namespace" "shop"}
+   "roleRef" {"kind" "Role" "name" "secret-reader"}
+   "subjects" [{"kind" "ServiceAccount" "name" "web-sa" "namespace" "shop"}]}]
+
+ :cluster-role-bindings
+ [{"metadata" {"name" "agent-is-admin"}
+   "roleRef" {"kind" "ClusterRole" "name" "cluster-admin"}
+   "subjects" [{"kind" "ServiceAccount" "name" "agent-sa" "namespace" "shop"}]}
+  {"metadata" {"name" "anyone-can-view"}
+   "roleRef" {"kind" "ClusterRole" "name" "view"}
+   "subjects" [{"kind" "Group" "name" "system:unauthenticated"}]}]
+
+ :secrets
+ [{"metadata" {"name" "payment-keys" "namespace" "shop"}
+   "type" "Opaque" "data" {"stripe" "c2s=" "hmac" "aG0="}}
+  {"metadata" {"name" "web-sa-token" "namespace" "shop"}
+   "type" "kubernetes.io/service-account-token" "data" {"token" "dGs="}}]}

@@ -1,0 +1,55 @@
+;; A deterministic GCP project. The bearer token is published on purpose.
+{:project-id "opencloud-example"
+ :page-size 1
+ :project-number "123456789012"
+ :token "opencloud-gcp-token"
+ :instances
+ [{:id "1000000000000000001" :name "web-1" :status "RUNNING"
+   :machine-type "zones/asia-northeast1-a/machineTypes/e2-medium"
+   :public-ip "203.0.113.60"
+   :service-accounts ["web@opencloud-example.iam.gserviceaccount.com"]}
+  {:id "1000000000000000002" :name "batch-1" :status "TERMINATED"
+   :machine-type "zones/asia-northeast1-a/machineTypes/e2-small"
+   :service-accounts []}]
+ :buckets
+ [{:name "payroll-archive" :location "ASIA-NORTHEAST1"
+   :public? false :uniform-access? true
+   :labels {"sensitive" "true"}
+   :kms-key "projects/opencloud-example/locations/asia-northeast1/keyRings/r/cryptoKeys/k"
+   :bucket-bindings
+   [{:role "roles/storage.objectViewer"
+     :members ["serviceAccount:web@opencloud-example.iam.gserviceaccount.com"]}]}
+  {:name "reports-public" :location "ASIA-NORTHEAST1"
+   :public? true :uniform-access? false
+   ;; exposure in GCP is a binding, not a flag
+   :bucket-bindings [{:role "roles/storage.objectViewer"
+                      :members ["allUsers"]}]}]
+ ;; the credential can see more than one project, and they hold different
+ ;; things. A scanner pointed at the one somebody named reports a clean
+ ;; organisation while the bucket bound to allUsers sits in the other
+ :projects
+ [{:project-id "opencloud-example" :project-number "123456789012"
+   :name "opencloud example" :lifecycle-state "ACTIVE"}
+  {:project-id "opencloud-sandbox" :project-number "123456789099"
+   :name "opencloud sandbox" :lifecycle-state "ACTIVE"}]
+
+ :other-projects
+ {"opencloud-sandbox"
+  {:project-id "opencloud-sandbox"
+   :project-number "123456789099"
+   :instances [{:id "1000000000000000009" :name "sandbox-1" :status "RUNNING"
+                :machine-type "zones/asia-northeast1-a/machineTypes/e2-micro"
+                :public-ip "203.0.113.90"
+                :service-accounts
+                ["sandbox@opencloud-sandbox.iam.gserviceaccount.com"]}]
+   :buckets [{:name "sandbox-drop" :location "ASIA-NORTHEAST1"
+              :public? true :uniform-access? false
+              :bucket-bindings [{:role "roles/storage.objectAdmin"
+                                 :members ["allUsers"]}]}]
+   :iam-bindings [{:role "roles/editor"
+                   :members ["allAuthenticatedUsers"]}]}}
+
+ :iam-bindings
+ [{:role "roles/owner" :members ["user:owner@example.invalid"]}
+  {:role "roles/storage.objectViewer"
+   :members ["allUsers" "serviceAccount:web@opencloud-example.iam.gserviceaccount.com"]}]}

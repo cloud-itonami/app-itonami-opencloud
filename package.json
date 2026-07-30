@@ -1,0 +1,12 @@
+{
+  "name": "@kotoba-lang/opencloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wire-compatible AWS, Azure, and GCP control-plane APIs for verification",
+  "scripts": {
+    "start": "nbb --classpath src:resources -m opencloud.server",
+    "test": "clojure -M:test && npm run test:portability",
+    "conformance": "nbb --classpath src:resources -m opencloud.conformance",
+    "test:portability": "clojure -M:test-portability"
+  }
+}

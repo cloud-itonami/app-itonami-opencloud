@@ -1,0 +1,314 @@
+;; A deterministic AWS account.
+;;
+;; The contents are chosen, not arbitrary: this account contains a complete
+;; privilege-escalation chain — an internet-facing instance whose role can
+;; assume a second role that can read a bucket tagged sensitive — plus a role
+;; any account may assume, a bucket shared with an outside account, and a
+;; database with neither encryption nor backups. A posture client run against
+;; this seed should find all of it; one that finds less has a gap.
+;;
+;; The credentials below are published on purpose and are not secret.
+
+{:account-id "123456789012"
+ :default-region "ap-northeast-1"
+ :page-size 2
+
+ ;; roles this credential is trusted to assume. A role that is not here is
+ ;; refused, which is the case a client must not paper over with its own
+ ;; credentials
+ :assumable-roles ["arn:aws:iam::222222222222:role/SecurityAudit"
+                   "arn:aws:iam::333333333333:role/MemberAccountAudit"]
+
+ ;; reachable only from a session, not from the long-lived credential. This
+ ;; is how an organisation is really read: assume the management account's
+ ;; role, then assume a role in each member account **from that session**. A
+ ;; client that signs the second AssumeRole with its base credentials is
+ ;; refused, and the refusal says nothing about why
+ :chained-roles ["arn:aws:iam::333333333333:role/MemberAccountAudit"]
+
+ ;; what the other account holds. Reading it needs a session, and a client
+ ;; that falls back to its own credentials finds the first account's estate
+ ;; and files it under this account's name
+ :assumed-accounts
+ {"222222222222"
+  {:account-id "222222222222"
+   :instances [{:region "ap-northeast-1"
+                :instance-id "i-0aud00000000000c3"
+                :name "audit-target-1"
+                :state "running"
+                :image-id "ami-0abcdef1234567890"
+                :instance-type "t3.micro"
+                :private-ip "10.9.0.4"
+                :subnet "subnet-0cccc"
+                :vpc "vpc-0cccc"
+                :http-tokens "required"
+                :security-groups ["sg-0web000000000001"]
+                :tags {"Name" "audit-target-1"}}]
+   :buckets []
+   :roles []
+   :users []
+   :keys []
+   :db-instances []
+   :security-groups []
+   :volumes []}
+
+  "333333333333"
+  {:account-id "333333333333"
+   :instances [{:region "ap-northeast-1"
+                :instance-id "i-0mem00000000000d4"
+                :name "member-target-1"
+                :state "running"
+                :image-id "ami-0abcdef1234567890"
+                :instance-type "t3.small"
+                :private-ip "10.11.0.7"
+                :subnet "subnet-0dddd"
+                :vpc "vpc-0dddd"
+                :http-tokens "required"
+                :security-groups ["sg-0web000000000001"]
+                :tags {"Name" "member-target-1"}}]
+   :buckets []
+   :roles []
+   :users []
+   :keys []
+   :db-instances []
+   :security-groups []
+   :volumes []}}
+
+ :accounts
+ {"AKIAOPENCLOUDEXAMPLE"
+  {:access-key-id "AKIAOPENCLOUDEXAMPLE"
+   :secret-access-key "opencloudExampleSecretKeyNotUsableAnywhereReal"
+   :account-id "123456789012"
+   :arn "arn:aws:iam::123456789012:user/opencloud"
+   :user-id "AIDAOPENCLOUDEXAMPLE"}}
+
+ :instances
+ [{:region "ap-northeast-1"
+   :instance-id "i-0web00000000000a1"
+   :name "web-1"
+   :state "running"
+   :image-id "ami-0abcdef1234567890"
+   :instance-type "t3.medium"
+   :private-ip "10.0.1.14"
+   :public-ip "203.0.113.55"
+   :subnet "subnet-0aaaa"
+   :vpc "vpc-0aaaa"
+   :instance-profile "arn:aws:iam::123456789012:role/web-role"
+   :http-tokens "optional"
+   :security-groups ["sg-0web000000000001"]
+   :tags {"Name" "web-1" "env" "prod"}}
+  {:region "ap-northeast-1"
+   :instance-id "i-0batch0000000000b2"
+   :name "batch-1"
+   :state "stopped"
+   :instance-type "t3.small"
+   :private-ip "10.0.2.31"
+   :subnet "subnet-0bbbb"
+   :vpc "vpc-0aaaa"
+   :http-tokens "required"
+   :security-groups ["sg-0private00000002"]
+   :tags {"Name" "batch-1"}}
+  {:region "ap-northeast-1"
+   :instance-id "i-0bastion000000000c3"
+   :name "bastion"
+   :state "running"
+   :instance-type "t3.micro"
+   :private-ip "10.0.1.9"
+   :public-ip "203.0.113.56"
+   :subnet "subnet-0aaaa"
+   :vpc "vpc-0aaaa"
+   :http-tokens "required"
+   :security-groups ["sg-0web000000000001"]
+   :tags {"Name" "bastion"}}
+  {:region "eu-west-1"
+   :instance-id "i-0eu000000000000b2"
+   :name "eu-batch-1"
+   :state "running"
+   :image-id "ami-0abcdef1234567890"
+   :instance-type "t3.small"
+   :private-ip "10.1.1.9"
+   :subnet "subnet-0eeee"
+   :vpc "vpc-0eeee"
+   :http-tokens "required"
+   :security-groups ["sg-0web000000000001"]
+   :tags {"Name" "eu-batch-1"}}]
+
+ :security-groups
+ [{:group-id "sg-0web000000000001"
+   :group-name "web"
+   :vpc "vpc-0aaaa"
+   :ingress [{:protocol "tcp" :from 22 :to 22 :cidrs ["0.0.0.0/0"]}
+             {:protocol "tcp" :from 443 :to 443 :cidrs ["0.0.0.0/0"]}]}
+  {:group-id "sg-0private00000002"
+   :group-name "batch"
+   :vpc "vpc-0aaaa"
+   :ingress [{:protocol "tcp" :from 5432 :to 5432 :cidrs ["10.0.0.0/16"]}]}
+  {:group-id "sg-0edge00000000003"
+   :group-name "edge"
+   :vpc "vpc-0aaaa"
+   :ingress [{:protocol "tcp" :from 443 :to 443 :cidrs-v6 ["::/0"]}]}]
+
+ :buckets
+ [{:name "payroll-archive"
+   :created "2024-06-02T09:00:00.000Z"
+   :region "ap-northeast-1"
+   :public? false
+   :public-access-block? true
+   :encryption "aws:kms"
+   :kms-key "arn:aws:kms:ap-northeast-1:123456789012:key/k-payroll"
+   :tags {"sensitive" "true"}
+   :policy {"Version" "2012-10-17"
+            "Statement"
+            [{"Sid" "PartnerRead"
+              "Effect" "Allow"
+              "Principal" {"AWS" "arn:aws:iam::999988887777:root"}
+              "Action" ["s3:GetObject" "s3:ListBucket"]
+              "Resource" "arn:aws:s3:::payroll-archive/*"}
+             {"Sid" "DeployRoleRead"
+              "Effect" "Allow"
+              "Principal" {"AWS" "arn:aws:iam::123456789012:role/deploy-role"}
+              "Action" "s3:GetObject"
+              "Resource" "arn:aws:s3:::payroll-archive/*"}]}}
+  {:name "reports-public"
+   :created "2025-01-04T10:00:00.000Z"
+   :region "ap-northeast-1"
+   :public? true
+   :public-access-block? false
+   :encryption nil}
+  {:name "build-artifacts"
+   :created "2025-03-11T00:00:00.000Z"
+   :region "ap-northeast-1"
+   :public? false
+   :public-access-block? true
+   :encryption "AES256"}]
+
+ :roles
+ [{:name "web-role"
+   :arn "arn:aws:iam::123456789012:role/web-role"
+   :created "2024-02-01T00:00:00Z"
+   :trust {"Version" "2012-10-17"
+           "Statement" [{"Effect" "Allow"
+                         "Principal" {"Service" "ec2.amazonaws.com"}
+                         "Action" "sts:AssumeRole"}]}
+   :attached-policies ["arn:aws:iam::123456789012:policy/web-read"]
+   :inline-policies {"assume-deploy"
+                     {"Version" "2012-10-17"
+                      "Statement" [{"Effect" "Allow"
+                                    "Action" "sts:AssumeRole"
+                                    "Resource"
+                                    "arn:aws:iam::123456789012:role/deploy-role"}]}}}
+  {:name "deploy-role"
+   :arn "arn:aws:iam::123456789012:role/deploy-role"
+   :created "2024-02-01T00:00:00Z"
+   :trust {"Version" "2012-10-17"
+           "Statement" [{"Effect" "Allow"
+                         "Principal"
+                         {"AWS" "arn:aws:iam::123456789012:role/web-role"}
+                         "Action" "sts:AssumeRole"}]}
+   :attached-policies ["arn:aws:iam::123456789012:policy/deploy-write"]}
+  {:name "partner-role"
+   :arn "arn:aws:iam::123456789012:role/partner-role"
+   :created "2025-05-01T00:00:00Z"
+   :trust {"Version" "2012-10-17"
+           "Statement" [{"Effect" "Allow"
+                         "Principal" {"AWS" "arn:aws:iam::999988887777:root"}
+                         "Action" "sts:AssumeRole"}]}}
+  {:name "open-role"
+   :arn "arn:aws:iam::123456789012:role/open-role"
+   :created "2025-06-01T00:00:00Z"
+   :trust {"Version" "2012-10-17"
+           "Statement" [{"Effect" "Allow"
+                         "Principal" "*"
+                         "Action" "sts:AssumeRole"}]}}
+  {:name "guarded-role"
+   :arn "arn:aws:iam::123456789012:role/guarded-role"
+   :created "2025-06-01T00:00:00Z"
+   :trust {"Version" "2012-10-17"
+           "Statement" [{"Effect" "Allow"
+                         "Principal" {"AWS" "arn:aws:iam::999988887777:root"}
+                         "Action" "sts:AssumeRole"
+                         "Condition" {"StringEquals"
+                                      {"sts:ExternalId" "tenant-42"}}}]}}]
+
+ :users
+ [{:name "opencloud"
+   :arn "arn:aws:iam::123456789012:user/opencloud"
+   :created "2024-01-05T00:00:00Z"
+   :mfa? true
+   :access-keys [{:id "AKIAOPENCLOUDEXAMPLE" :status "Active"
+                  :created "2024-01-05T00:00:00Z"
+                  :last-used "2026-07-20T00:00:00Z"}]}
+  {:name "legacy-deploy"
+   :arn "arn:aws:iam::123456789012:user/legacy-deploy"
+   :created "2023-02-01T00:00:00Z"
+   :mfa? false
+   :attached-policies ["arn:aws:iam::123456789012:policy/legacy-admin"]
+   :inline-policies {"legacy-bucket-write"
+                     {"Version" "2012-10-17"
+                      "Statement" [{"Effect" "Allow"
+                                    "Action" "s3:PutObject"
+                                    "Resource" "arn:aws:s3:::build-artifacts/*"}]}}
+   :access-keys [{:id "AKIALEGACYEXAMPLE00" :status "Active"
+                  :created "2023-02-01T00:00:00Z"
+                  :last-used nil}]}]
+
+ :policies
+ {"arn:aws:iam::123456789012:policy/web-read"
+  {:name "web-read"
+   :default-version "v3"
+   :versions {"v3" {"Version" "2012-10-17"
+                    "Statement" [{"Effect" "Allow"
+                                  "Action" ["s3:GetObject" "s3:ListBucket"]
+                                  "Resource" "arn:aws:s3:::build-artifacts/*"}]}}}
+  "arn:aws:iam::123456789012:policy/deploy-write"
+  {:name "deploy-write"
+   :default-version "v1"
+   :versions {"v1" {"Version" "2012-10-17"
+                    "Statement" [{"Effect" "Allow"
+                                  "Action" "s3:*"
+                                  "Resource" "arn:aws:s3:::payroll-archive/*"}]}}}
+  "arn:aws:iam::123456789012:policy/legacy-admin"
+  {:name "legacy-admin"
+   :default-version "v1"
+   :versions {"v1" {"Version" "2012-10-17"
+                    "Statement" [{"Effect" "Allow"
+                                  "NotAction" "iam:*"
+                                  "Resource" "*"}]}}}}
+
+ ;; the key policy decides whether encryption at rest protects anything
+ :keys
+ [{:key-id "k-payroll"
+   :arn "arn:aws:kms:ap-northeast-1:123456789012:key/k-payroll"
+   :description "payroll archive"
+   :manager "CUSTOMER"
+   :enabled? true
+   :policy {"Version" "2012-10-17"
+            "Statement"
+            [{"Sid" "Root" "Effect" "Allow"
+              "Principal" {"AWS" "arn:aws:iam::123456789012:root"}
+              "Action" "kms:*" "Resource" "*"}
+             {"Sid" "PartnerDecrypt" "Effect" "Allow"
+              "Principal" {"AWS" "arn:aws:iam::999988887777:root"}
+              "Action" ["kms:Decrypt" "kms:DescribeKey"] "Resource" "*"}]}}
+  {:key-id "k-builds"
+   :arn "arn:aws:kms:ap-northeast-1:123456789012:key/k-builds"
+   :description "build artifacts"
+   :manager "CUSTOMER"
+   :enabled? true
+   :policy {"Version" "2012-10-17"
+            "Statement" [{"Sid" "Root" "Effect" "Allow"
+                          "Principal" {"AWS" "arn:aws:iam::123456789012:root"}
+                          "Action" "kms:*" "Resource" "*"}]}}]
+
+ :databases
+ [{:identifier "payroll"
+   :arn "arn:aws:rds:ap-northeast-1:123456789012:db:payroll"
+   :engine "postgres"
+   :engine-version "16.3"
+   :public? false
+   :encrypted? false
+   :multi-az? true
+   :backup-retention 0
+   :deletion-protection? false
+   :security-groups ["sg-0private00000002"]
+   :tags {"sensitive" "true"}}]}

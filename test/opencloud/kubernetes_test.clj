@@ -1,0 +1,143 @@
+(ns opencloud.kubernetes-test
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [opencloud.kubernetes :as kubernetes]
+            [opencloud.wire :as wire]))
+
+(def seed (edn/read-string (slurp (io/file "resources/seed/kubernetes.edn"))))
+
+(defn- get* [path & [query]]
+  (kubernetes/handle {:seed seed :method "GET"
+                      :target (str path (when query (str "?" query)))
+                      :headers {"authorization" (str "Bearer " (:token seed))}}))
+
+(deftest the-api-server-refuses-what-it-really-refuses
+  (is (= 401 (:status (kubernetes/handle {:seed seed :target "/api/v1/pods"
+                                          :headers {}}))))
+  (is (= 401 (:status (kubernetes/handle {:seed seed :target "/api/v1/pods"
+                                          :headers {"authorization"
+                                                    "Bearer wrong"}}))))
+  ;; the API names its verbs, so refusing a write is exact
+  (let [write (kubernetes/handle {:seed seed :target "/api/v1/pods"
+                                  :method "POST"
+                                  :headers {"authorization"
+                                            (str "Bearer " (:token seed))}})]
+    (is (= 403 (:status write)))
+    (is (str/includes? (:body write) "Forbidden")))
+  (is (= 404 (:status (get* "/api/v1/nodes")))))
+
+(deftest every-listing-is-a-typed-list-with-the-continuation-where-it-belongs
+  (doseq [[path kind] [["/api/v1/pods" "PodList"]
+                       ["/api/v1/services" "ServiceList"]
+                       ["/api/v1/serviceaccounts" "ServiceAccountList"]
+                       ["/api/v1/secrets" "SecretList"]
+                       ["/apis/rbac.authorization.k8s.io/v1/roles" "RoleList"]
+                       ["/apis/rbac.authorization.k8s.io/v1/clusterroles"
+                        "ClusterRoleList"]
+                       ["/apis/rbac.authorization.k8s.io/v1/rolebindings"
+                        "RoleBindingList"]
+                       ["/apis/rbac.authorization.k8s.io/v1/clusterrolebindings"
+                        "ClusterRoleBindingList"]]]
+    (let [body (:body (get* path))]
+      (is (= 200 (:status (get* path))) path)
+      (is (str/includes? body (str "\"kind\":\"" kind "\"")) path)))
+  ;; the seed pages one object at a time, and the token lives under metadata
+  (let [first-page (:body (get* "/api/v1/pods"))]
+    (is (str/includes? first-page "\"metadata\":{\"resourceVersion\":\"1\",\"continue\":\"1\"}"))
+    (let [second-page (:body (get* "/api/v1/pods" "continue=1"))]
+      (is (not= first-page second-page))
+      (is (str/includes? second-page "node-agent")))
+    (let [last-page (:body (get* "/api/v1/pods" "continue=2"))]
+      (is (not (str/includes? last-page "\"continue\""))))))
+
+(deftest a-marker-that-is-not-a-position-is-refused-not-humoured
+  ;; parseInt reads `1?continue=2` as 1 and would serve page one forever; a
+  ;; client looping like that has a bug and must be told
+  (is (thrown? clojure.lang.ExceptionInfo (wire/page [1 2 3] 1 "1?continue=2")))
+  (is (thrown? clojure.lang.ExceptionInfo (wire/page [1 2 3] 1 "abc")))
+  (is (= {:items [1] :next-marker "1"} (wire/page [1 2 3] 1 nil)))
+  (is (= {:items [3] :next-marker nil} (wire/page [1 2 3] 1 "2"))))
+
+(deftest the-seed-holds-the-chain-a-kspm-client-should-find
+  (let [role-binding (first (:role-bindings seed))
+        agent-pod (first (filter #(= "node-agent" (get-in % ["metadata" "name"]))
+                                 (:pods seed)))]
+    ;; storefront service -> web pod -> web-sa -> secret-reader -> payment-keys
+    (is (= "LoadBalancer" (get-in (first (:services seed)) ["spec" "type"])))
+    (is (= "web-sa" (get-in role-binding ["subjects" 0 "name"])))
+    (is (= "secret-reader" (get-in role-binding ["roleRef" "name"])))
+    (is (some #(= "payment-keys" (get-in % ["metadata" "name"])) (:secrets seed)))
+    ;; and a second pod that can leave its container onto a shared node
+    (is (true? (get-in agent-pod ["spec" "hostPID"])))
+    (is (= (get-in agent-pod ["spec" "nodeName"])
+           (get-in (first (:pods seed)) ["spec" "nodeName"])))))
+
+(deftest a-namespaced-credential-cannot-list-across-the-cluster
+  (let [scoped (assoc seed :namespaced-only? true)
+        cluster-wide (kubernetes/handle
+                      {:seed scoped :method "GET" :target "/api/v1/pods"
+                       :headers {"authorization" (str "Bearer " (:token seed))}})]
+    ;; a client that reads this 403 as an empty cluster reports a clean
+    ;; cluster, which is the answer nobody can tell from a healthy one
+    (is (= 403 (:status cluster-wide)))
+    (is (str/includes? (:body cluster-wide) "at the cluster scope"))
+    (is (str/includes? (:body cluster-wide) "\"reason\":\"Forbidden\""))
+    (is (not (str/includes? (:body cluster-wide) "PodList")))
+
+    ;; the namespaced path is what such a credential may read
+    (let [scoped-list (kubernetes/handle
+                       {:seed scoped :method "GET"
+                        :target "/api/v1/namespaces/shop/pods"
+                        :headers {"authorization" (str "Bearer " (:token seed))}})]
+      (is (= 200 (:status scoped-list)))
+      (is (str/includes? (:body scoped-list) "PodList")))
+
+    ;; and a namespace with nothing in it is empty rather than forbidden
+    (let [empty-ns (kubernetes/handle
+                    {:seed scoped :method "GET"
+                     :target "/api/v1/namespaces/other/pods"
+                     :headers {"authorization" (str "Bearer " (:token seed))}})]
+      (is (= 200 (:status empty-ns)))
+      (is (str/includes? (:body empty-ns) "\"items\":[]")))))
+
+(deftest a-cluster-scoped-kind-has-no-namespaced-path
+  ;; ClusterRole exists once for the whole cluster: a namespaced credential
+  ;; cannot read it at all, and inventing a path would suggest otherwise
+  (is (= 404 (:status (kubernetes/handle
+                       {:seed seed :method "GET"
+                        :target "/apis/rbac.authorization.k8s.io/v1/namespaces/shop/clusterroles"
+                        :headers {"authorization" (str "Bearer " (:token seed))}})))))
+
+(deftest listing-namespaces-is-itself-a-cluster-scoped-read
+  ;; the shape RBAC really takes: a credential bound to a namespace, plus a
+  ;; ClusterRole that lets it list namespaces so it can find out which ones.
+  ;; Without the second, the operator has to say — and an operator who has to
+  ;; say is one who can forget a namespace, which is then a namespace nobody
+  ;; scans and nothing mentions.
+  (let [scoped (assoc seed :namespaced-only? true)
+        with-discovery (assoc scoped :namespace-discovery? true)
+        ask (fn [seed*]
+              (kubernetes/handle {:seed seed* :method "GET"
+                                  :target "/api/v1/namespaces"
+                                  :headers {"authorization"
+                                            (str "Bearer " (:token seed))}}))]
+    ;; refused without the ClusterRole, and refused for the same reason every
+    ;; other cluster-scoped read is
+    (is (= 403 (:status (ask scoped))))
+    (is (str/includes? (:body (ask scoped)) "at the cluster scope"))
+
+    (let [{:keys [status body]} (ask with-discovery)]
+      (is (= 200 status))
+      (is (str/includes? body "NamespaceList"))
+      ;; the namespaces the objects in this cluster are actually in, not a
+      ;; list somebody typed
+      (is (str/includes? body "\"name\":\"shop\"")))
+
+    ;; and it changes nothing else: the cluster-wide listings stay refused
+    (is (= 403 (:status (kubernetes/handle
+                         {:seed with-discovery :method "GET"
+                          :target "/api/v1/pods"
+                          :headers {"authorization"
+                                    (str "Bearer " (:token seed))}}))))))

@@ -1,0 +1,49 @@
+;; OSV records. The API returns whole records from `query` and identifiers
+;; only from `querybatch`, so what a client does with the difference is
+;; visible here rather than resolved in advance by a recording.
+{:page-size 1
+ :max-batch 8
+ :records
+ [{"id" "GHSA-p6mc-m468-83gg"
+   "modified" "2026-01-02T00:00:00Z"
+   "aliases" ["CVE-2020-8203"]
+   "summary" "Prototype pollution in lodash"
+   "severity" [{"type" "CVSS_V3"
+                "score" "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"}]
+   "affected" [{"package" {"ecosystem" "npm" "name" "lodash"}
+                "ranges" [{"type" "SEMVER"
+                           "events" [{"introduced" "0"} {"fixed" "4.17.20"}]}]}]}
+  {"id" "GHSA-35jh-r3h4-6jhm"
+   "modified" "2026-01-03T00:00:00Z"
+   "aliases" ["CVE-2021-23337"]
+   "summary" "Command injection in lodash"
+   "severity" [{"type" "CVSS_V3"
+                "score" "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+   "affected" [{"package" {"ecosystem" "npm" "name" "lodash"}
+                "ranges" [{"type" "SEMVER"
+                           "events" [{"introduced" "0"} {"fixed" "4.17.21"}]}]}]}
+  {"id" "DSA-5343-1"
+   "modified" "2026-01-04T00:00:00Z"
+   "affected" [{"package" {"ecosystem" "Debian:11" "name" "openssl"}
+                "ranges" [{"type" "ECOSYSTEM"
+                           "events" [{"introduced" "0"}
+                                     {"fixed" "1.1.1n-0+deb11u5"}]}]}]}
+  ;; the same package name and a neighbouring version in a different
+  ;; distribution. A client that asks Debian about an Ubuntu release gets the
+  ;; empty answer above rather than this one, and an empty answer is what a
+  ;; clean package looks like
+  {"id" "USN-6435-1"
+   "modified" "2026-01-06T00:00:00Z"
+   "summary" "openssl vulnerability"
+   "severity" [{"type" "CVSS_V3"
+                "score" "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"}]
+   "affected" [{"package" {"ecosystem" "Ubuntu:22.04" "name" "openssl"}
+                "ranges" [{"type" "ECOSYSTEM"
+                           "events" [{"introduced" "0"}
+                                     {"fixed" "3.0.2-0ubuntu1.16"}]}]}]}
+  {"id" "GHSA-withdrawn-example"
+   "modified" "2026-01-05T00:00:00Z"
+   "withdrawn" "2026-01-06T00:00:00Z"
+   "affected" [{"package" {"ecosystem" "npm" "name" "lodash"}
+                "ranges" [{"type" "SEMVER"
+                           "events" [{"introduced" "0"} {"fixed" "99.0.0"}]}]}]}]}

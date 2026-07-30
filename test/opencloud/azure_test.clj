@@ -1,0 +1,110 @@
+(ns opencloud.azure-test
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [opencloud.azure :as azure]))
+
+(def seed (edn/read-string (slurp (io/file "resources/seed/azure.edn"))))
+
+(defn- request [host path & [query]]
+  (azure/handle {:seed seed
+                 :target (str path "?api-version=2024-07-01"
+                              (when query (str "&" query)))
+                 :headers {"host" host
+                           "authorization" (str "Bearer " (:token seed))}}))
+
+(deftest the-next-link-follows-the-host-the-request-arrived-on
+  ;; a configured base URL is correct only while the server runs where someone
+  ;; assumed it would, and it fails by producing a silent gap
+  (let [path (str "/subscriptions/" (:subscription-id seed)
+                  "/providers/Microsoft.Compute/virtualMachines")]
+    (doseq [host ["127.0.0.1:4599" "127.0.0.1:45123" "management.azure.com"]]
+      (let [body (:body (request host path))]
+        (is (str/includes? body (str "http://" host path))
+            (str "nextLink must point back at " host))))
+    ;; and following it returns the next page rather than the first again
+    (let [first-page (:body (request "127.0.0.1:9" path))
+          marker (second (re-find #"skipToken=(\d+)" first-page))
+          second-page (:body (request "127.0.0.1:9" path
+                                      (str "skipToken=" marker)))]
+      (is (some? marker))
+      (is (not= first-page second-page)))))
+
+(deftest arm-refuses-what-the-real-service-refuses
+  (is (= 401 (:status (azure/handle {:seed seed :target "/subscriptions/x"
+                                     :headers {"host" "h"}}))))
+  (is (= 401 (:status (azure/handle {:seed seed :target "/subscriptions/x"
+                                     :headers {"host" "h"
+                                               "authorization" "Bearer wrong"}}))))
+  (let [no-version (azure/handle {:seed seed
+                                  :target "/subscriptions/x/providers/Microsoft.Compute/virtualMachines"
+                                  :headers {"host" "h"
+                                            "authorization"
+                                            (str "Bearer " (:token seed))}})]
+    (is (= 400 (:status no-version)))
+    (is (str/includes? (:body no-version) "MissingApiVersionParameter"))))
+
+(deftest a-throttle-is-not-a-smaller-subscription
+  ;; ARM answers 429 and says when to come back in a header. A client that
+  ;; reads the refusal as an answer reports a subscription missing whatever
+  ;; the refused listing held; one that retries on a schedule of its own
+  ;; invention is refused again.
+  (let [refused (azure/handle
+                 {:seed (assoc seed :throttle-every 1 :request-count 0)
+                  :target (str "/subscriptions/" (:subscription-id seed)
+                               "/providers/Microsoft.Compute/virtualMachines"
+                               "?api-version=2024-07-01")
+                  :headers {"host" "management.azure.com"
+                            "authorization" (str "Bearer " (:token seed))}})]
+    (is (= 429 (:status refused)))
+    (is (= "1" (get (:headers refused) "retry-after")))
+    (is (= "0" (get (:headers refused)
+                    "x-ms-ratelimit-remaining-subscription-reads")))
+    (is (str/includes? (:body refused) "TooManyRequests"))
+    ;; and no value key at all: there is nothing here to mistake for a page
+    (is (not (str/includes? (:body refused) "\"value\"")))))
+
+(deftest a-tenant-is-not-a-subscription
+  ;; the credential can see two, and they hold different things. A client
+  ;; pointed at one reports a clean tenant while the storage account anyone
+  ;; can read sits in the other — and nothing in that report says a second
+  ;; subscription exists.
+  (let [ask (fn [path]
+              (azure/handle {:seed seed :target (str path "?api-version=2020-01-01")
+                             :headers {"host" "management.azure.com"
+                                       "authorization" (str "Bearer " (:token seed))}}))
+        listing (:body (ask "/subscriptions"))]
+    (is (str/includes? listing "00000000-0000-0000-0000-00000000dead"))
+    ;; paged like everything else here, so a client that reads page one only
+    ;; sees one subscription and believes that is the tenant
+    (is (str/includes? listing "nextLink"))
+
+    (let [second-page (:body (azure/handle
+                              {:seed seed
+                               :target "/subscriptions?api-version=2020-01-01&skipToken=1"
+                               :headers {"host" "management.azure.com"
+                                         "authorization" (str "Bearer " (:token seed))}}))]
+      (is (str/includes? second-page "00000000-0000-0000-0000-0000000000fe")))
+
+    ;; and the other subscription really holds different resources: a client
+    ;; that scans the same one twice, or the wrong one, is visible
+    (let [other (:body (azure/handle
+                        {:seed seed
+                         :target (str "/subscriptions/00000000-0000-0000-0000-0000000000fe"
+                                      "/providers/Microsoft.Storage/storageAccounts"
+                                      "?api-version=2023-05-01")
+                         :headers {"host" "management.azure.com"
+                                   "authorization" (str "Bearer " (:token seed))}}))]
+      (is (str/includes? other "sandboxdrop"))
+      (is (str/includes? other "\"allowBlobPublicAccess\":true"))
+      (is (not (str/includes? other "payrollarchive"))))
+
+    ;; a subscription outside the tenant is 403, not an empty subscription
+    (is (= 403 (:status (azure/handle
+                         {:seed seed
+                          :target (str "/subscriptions/99999999-9999-9999-9999-999999999999"
+                                       "/providers/Microsoft.Compute/virtualMachines"
+                                       "?api-version=2024-07-01")
+                          :headers {"host" "management.azure.com"
+                                    "authorization" (str "Bearer " (:token seed))}}))))))
