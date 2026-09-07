@@ -1,4 +1,7 @@
 {:paths ["src" "resources"]
+ :deps {io.github.kotoba-lang/edn
+        {:git/url "https://github.com/kotoba-lang/edn.git"
+         :git/sha "250f4dafa5f5c7fb3109703496a52866e2a62dcd"}}
  :aliases
  {:test-portability
   {:extra-paths ["test"]

@@ -11,7 +11,7 @@
             ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:http" :as http]
-            [clojure.edn :as edn]
+            [kotoba.lang.edn :as edn]
             [clojure.string :as str]
             [opencloud.aws :as aws]
             [opencloud.ecr :as ecr]
