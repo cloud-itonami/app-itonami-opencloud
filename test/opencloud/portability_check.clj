@@ -6,7 +6,7 @@
   The server runs on Node and its tests run on the JVM. Anything that differs
   between them is a defect the test suite cannot see.")
 
-(require '[clojure.edn :as edn]
+(require '[kotoba.lang.edn :as edn]
          '[clojure.java.shell :as shell]
          '[clojure.string :as str]
          '[opencloud.portability :as portability])
