@@ -12,7 +12,7 @@
             ["node:fs" :as fs]
             ["node:http" :as http]
             [kotoba.lang.edn :as edn]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [opencloud.aws :as aws]
             [opencloud.ecr :as ecr]
             [opencloud.azure :as azure]
@@ -39,7 +39,7 @@
   (edn/read-string (.readFileSync fs path "utf8")))
 
 (defn- headers-of [request]
-  (into {} (map (fn [[k v]] [(str/lower-case (str k)) (str v)])
+  (into {} (map (fn [[k v]] [(str/lower (str k)) (str v)])
                 (js->clj (.-headers request)))))
 
 (defn- read-body [request]
