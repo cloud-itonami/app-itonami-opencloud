@@ -1,7 +1,7 @@
 (ns opencloud.ecr-test
   (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.ecr :as ecr]))
 

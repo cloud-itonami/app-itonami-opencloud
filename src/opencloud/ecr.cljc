@@ -15,7 +15,7 @@
   ever issues signed GETs cannot call it at all, and the way that failure
   presents is `we cannot authenticate to your registry` rather than anything
   about protocols."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (def target-prefix "AmazonEC2ContainerRegistry_V20150921.")

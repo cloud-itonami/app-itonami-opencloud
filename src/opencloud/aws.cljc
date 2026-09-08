@@ -9,7 +9,7 @@
 
   I/O free: a request map in, a response map out. The HTTP shim is the only
   part that touches a socket."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 ;; --- helpers ----------------------------------------------------------------

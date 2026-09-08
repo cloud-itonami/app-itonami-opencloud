@@ -5,7 +5,7 @@
   REST-and-JSON reskin of a cloud API verifies nothing about a client that has
   to sign a query-protocol request and read an XML response — the two disagree
   in exactly the places clients get wrong."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; --- percent decoding -------------------------------------------------------
 
@@ -168,7 +168,7 @@
         [character]
         (let [code #?(:clj (int character) :cljs (.charCodeAt (str character) 0))]
           ;; the seed stays ASCII, which is what IAM documents are
-          [(str "%" (str/upper-case
+          [(str "%" (str/upper
                      (str (when (< code 16) "0")
                           #?(:clj (Integer/toHexString code)
                              :cljs (.toString code 16)))))])))

@@ -4,7 +4,7 @@
   GCP is bearer-token JSON, but its list responses carry a `kind` discriminator
   and paginate with `nextPageToken` rather than a marker. A client written
   against a generic REST shape misses both."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (defn- json-ok [value]
@@ -83,7 +83,7 @@
                       other)
                seed)]
     (cond
-      (not (and token (str/starts-with? (str/lower-case token) "bearer ")))
+      (not (and token (str/starts-with? (str/lower token) "bearer ")))
       (unauthorized)
 
       (not= (:token seed) (subs token 7))

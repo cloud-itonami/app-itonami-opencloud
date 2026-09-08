@@ -11,7 +11,7 @@
   exists. The third is the weakest check and the most useful — it stops a
   claim from being added without anything being written to hold it."
   (:require [clojure.set :as set]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (defn errors
   "What is wrong with the declaration.

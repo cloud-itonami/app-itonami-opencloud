@@ -2,7 +2,7 @@
   "The verifier is checked against the same published AWS test vector the
   clients are, from the other side: a signature the specification says is
   correct must be accepted, and anything else must be refused with a reason."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.sigv4-verify :as sigv4])
   (:import [java.security MessageDigest]

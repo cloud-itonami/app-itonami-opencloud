@@ -8,7 +8,7 @@
 
 (require '[kotoba.lang.edn :as edn]
          '[clojure.java.shell :as shell]
-         '[clojure.string :as str]
+         '[kotoba.lang.text :as str]
          '[opencloud.portability :as portability])
 
 (def runner "(require '[opencloud.portability :as p]) (prn (p/results))")

@@ -12,7 +12,7 @@
   an opaque token, `querybatch` returns identifiers and the client has to go
   and fetch each one, `GET /v1/vulns/{id}` serves the record, and an id that
   is not there is a 404 rather than an empty object."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (defn- matches?
