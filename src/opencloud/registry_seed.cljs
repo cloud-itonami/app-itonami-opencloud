@@ -7,7 +7,7 @@
   and a change to any layer's contents moves every digest above it exactly the
   way it does in a real build."
   (:require ["node:crypto" :as crypto]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [opencloud.registry :as registry]
             [opencloud.tar :as tar]
             [opencloud.wire :as wire]))
