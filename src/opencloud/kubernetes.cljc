@@ -6,7 +6,7 @@
   continuation token lives in `metadata.continue` rather than in a field named
   after paging. A client written against a generic REST shape reads the first
   page and calls it the cluster."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (defn- json-ok [value]
@@ -121,7 +121,7 @@
         namespace* (namespace-of path)
         [seed-key kind] (get collections suffix)]
     (cond
-      (not (and token (str/starts-with? (str/lower-case token) "bearer ")))
+      (not (and token (str/starts-with? (str/lower token) "bearer ")))
       (unauthorized)
 
       (not= (:token seed) (subs token 7))
@@ -130,7 +130,7 @@
       ;; the API names its verbs, so refusing a write is exact rather than a
       ;; guess about what the method means
       (not (contains? #{"GET" nil} (or method "GET")))
-      (forbidden (str/lower-case (str method)) suffix)
+      (forbidden (str/lower (str method)) suffix)
 
       ;; how a namespace-scoped credential finds out which namespaces it has.
       ;; Cluster-scoped itself, so a credential without the ClusterRole for it

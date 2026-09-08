@@ -1,7 +1,7 @@
 (ns opencloud.gcp-test
   (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [opencloud.gcp :as gcp]))
 

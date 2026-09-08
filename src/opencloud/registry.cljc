@@ -14,7 +14,7 @@
   comes back, and the digests are computed over the exact bytes served — so a
   client that skips verification is not detected here, but a client that
   verifies incorrectly is."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (def index-media-type "application/vnd.oci.image.index.v1+json")
@@ -30,12 +30,12 @@
 
 (defn- bearer-token [headers]
   (let [authorization (str (get headers "authorization" ""))]
-    (when (str/starts-with? (str/lower-case authorization) "bearer ")
+    (when (str/starts-with? (str/lower authorization) "bearer ")
       (str/trim (subs authorization 7)))))
 
 (defn- basic-credential [headers]
   (let [authorization (str (get headers "authorization" ""))]
-    (when (str/starts-with? (str/lower-case authorization) "basic ")
+    (when (str/starts-with? (str/lower authorization) "basic ")
       (str/trim (subs authorization 6)))))
 
 (defn challenge

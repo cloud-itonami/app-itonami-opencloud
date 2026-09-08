@@ -1,7 +1,7 @@
 (ns opencloud.advisory-test
   (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.advisory :as advisory]))
 

@@ -18,7 +18,7 @@
   own credentials when the role is unavailable reports its own account's
   resources under the other account's name: everything is present, nothing is
   missing, and the answer is about the wrong estate."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (defn- account-of-arn [arn]
@@ -34,7 +34,7 @@
   ;; own name, and a verifier that could only recognise one name would refuse
   ;; every real session while accepting the one the test happened to use
   (let [account (account-of-arn role-arn)
-        suffix (str/upper-case (str/replace (str account) #"[^A-Za-z0-9]" ""))]
+        suffix (str/upper (str/replace (str account) #"[^A-Za-z0-9]" ""))]
     {:access-key-id (str "ASIA" (subs (str suffix "XXXXXXXXXXXXXXXX") 0 16))
      :secret-access-key (str "session-secret-for-" account)
      :session-token (str "FwoGZXIvYXdzE" account "-" session-name)

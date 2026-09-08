@@ -9,7 +9,7 @@
 
   SHA-256 and HMAC-SHA256 are injected so the same code verifies on the JVM in
   tests and on Node in the running server."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def algorithm "AWS4-HMAC-SHA256")
 
@@ -36,7 +36,7 @@
             :else
             (let [code #?(:clj (int character)
                           :cljs (.charCodeAt (str character) 0))]
-              (str "%" (str/upper-case
+              (str "%" (str/upper
                         (str (when (< code 16) "0")
                              #?(:clj (Integer/toHexString code)
                                 :cljs (.toString code 16))))))))
@@ -49,7 +49,7 @@
     (let [parts (into {}
                       (keep (fn [chunk]
                               (let [[k v] (str/split (str/trim chunk) #"=" 2)]
-                                (when (and k v) [(str/lower-case k) v])))
+                                (when (and k v) [(str/lower k) v])))
                             (str/split (subs header (count algorithm)) #",")))
           [access-key-id date region service terminator]
           (str/split (get parts "credential" "") #"/")]
@@ -64,10 +64,10 @@
 
 (defn canonical-request
   [{:keys [method path query headers signed-headers payload-hash]}]
-  (let [lookup (into {} (map (fn [[k v]] [(str/lower-case (name k)) v]) headers))]
+  (let [lookup (into {} (map (fn [[k v]] [(str/lower (name k)) v]) headers))]
     (str/join
      "\n"
-     [(str/upper-case (name method))
+     [(str/upper (name method))
       (if (str/blank? path) "/" (uri-encode path {:preserve-slash true}))
       (->> query
            (map (fn [[k v]] [(uri-encode (str k)) (uri-encode (str v))]))
@@ -131,7 +131,7 @@
   [{:keys [headers method path query body-hash accounts now-ms clock-skew-ms]
     :or {clock-skew-ms 900000}}
    crypto]
-  (let [lookup (into {} (map (fn [[k v]] [(str/lower-case (name k)) v]) headers))
+  (let [lookup (into {} (map (fn [[k v]] [(str/lower (name k)) v]) headers))
         authorization (get lookup "authorization")
         credential (parse-authorization authorization)
         amz-date (get lookup "x-amz-date")

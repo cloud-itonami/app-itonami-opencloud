@@ -5,7 +5,7 @@
   it fails a request that omits it. That is a real client requirement, so this
   server enforces it rather than being forgiving in a way the real service is
   not."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [opencloud.wire :as wire]))
 
 (defn- unauthorized []
@@ -85,7 +85,7 @@
         page (fn [rows] (paged {:seed seed :host host :request-path path
                                 :query query :rows rows}))]
     (cond
-      (not (and token (str/starts-with? (str/lower-case token) "bearer ")))
+      (not (and token (str/starts-with? (str/lower token) "bearer ")))
       (unauthorized)
 
       (not= (:token seed) (subs token 7))
