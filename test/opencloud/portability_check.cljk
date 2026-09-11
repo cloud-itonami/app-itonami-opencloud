@@ -16,7 +16,7 @@
 (defn- node-results []
   (let [script (java.io.File/createTempFile "portability" ".cljs")]
     (spit script runner)
-    (let [{:keys [exit out err]} (shell/sh "nbb" "--classpath" "src:resources:test"
+    (let [{:keys [exit out err]} (shell/sh "kbb" "--backend" "sci" "--classpath" "src:resources:test"
                                            (.getPath script))]
       (.delete script)
       (when-not (zero? exit)

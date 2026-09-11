@@ -36,7 +36,7 @@ verifierはJVM側のtestで、公開されているAWS Signature V4 test suite
 
 ```sh
 npm start                      # port 4566（OPENCLOUD_PORT で変更可）
-nbb --classpath src:resources -m opencloud.server --port 4599 --verbose true
+kbb --backend sci --classpath src:resources -m opencloud.server --port 4599 --verbose true
 npm test                       # JVM上のportable部分のtest
 ```
 
