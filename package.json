@@ -4,9 +4,9 @@
   "private": true,
   "description": "Wire-compatible AWS, Azure, and GCP control-plane APIs for verification",
   "scripts": {
-    "start": "nbb --classpath src:resources -m opencloud.server",
-    "test": "clojure -M:test && npm run test:portability",
-    "conformance": "nbb --classpath src:resources -m opencloud.conformance",
-    "test:portability": "clojure -M:test-portability"
+    "start": "kbb --backend sci --classpath src:resources -m opencloud.server",
+    "test": "kbb -M:test && npm run test:portability",
+    "conformance": "kbb --backend sci --classpath src:resources -m opencloud.conformance",
+    "test:portability": "kbb -M:test-portability"
   }
 }
