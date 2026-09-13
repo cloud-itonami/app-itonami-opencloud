@@ -1,12 +1,12 @@
 (ns opencloud.kubernetes-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.kubernetes :as kubernetes]
             [opencloud.wire :as wire]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/kubernetes.edn"))))
+(def seed (th/read-edn! "resources/seed/kubernetes.edn"))
 
 (defn- get* [path & [query]]
   (kubernetes/handle {:seed seed :method "GET"
@@ -55,8 +55,8 @@
 (deftest a-marker-that-is-not-a-position-is-refused-not-humoured
   ;; parseInt reads `1?continue=2` as 1 and would serve page one forever; a
   ;; client looping like that has a bug and must be told
-  (is (thrown? clojure.lang.ExceptionInfo (wire/page [1 2 3] 1 "1?continue=2")))
-  (is (thrown? clojure.lang.ExceptionInfo (wire/page [1 2 3] 1 "abc")))
+  (is (thrown? js/Error (wire/page [1 2 3] 1 "1?continue=2")))
+  (is (thrown? js/Error (wire/page [1 2 3] 1 "abc")))
   (is (= {:items [1] :next-marker "1"} (wire/page [1 2 3] 1 nil)))
   (is (= {:items [3] :next-marker nil} (wire/page [1 2 3] 1 "2"))))
 

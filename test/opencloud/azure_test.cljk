@@ -1,11 +1,11 @@
 (ns opencloud.azure-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.azure :as azure]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/azure.edn"))))
+(def seed (th/read-edn! "resources/seed/azure.edn"))
 
 (defn- request [host path & [query]]
   (azure/handle {:seed seed

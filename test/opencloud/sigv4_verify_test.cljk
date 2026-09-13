@@ -4,20 +4,25 @@
   correct must be accepted, and anything else must be refused with a reason."
   (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
-            [opencloud.sigv4-verify :as sigv4])
-  (:import [java.security MessageDigest]
-           [javax.crypto Mac]
-           [javax.crypto.spec SecretKeySpec]))
+            [opencloud.sigv4-verify :as sigv4]))
+
+(defn- as-buffer
+  "Strings go in as UTF-8; byte seqs pass through Buffer so 0x80-0xff
+  survive (a fromCharCode stringification corrupts them)."
+  [x]
+  (if (string? x)
+    (js/Buffer.from (str x) "utf8")
+    (js/Buffer.from (into-array (map #(bit-and 0xff %) x)))))
 
 (defn hmac-sha256 [key* message]
-  (let [mac (Mac/getInstance "HmacSHA256")]
-    (.init mac (SecretKeySpec. (byte-array (map unchecked-byte key*)) "HmacSHA256"))
-    (mapv #(bit-and 0xff %) (.doFinal mac (.getBytes (str message) "UTF-8")))))
+  (let [m (.createHmac (js/require "crypto") "sha256" (as-buffer key*))]
+    (.update m (as-buffer message))
+    (vec (map #(bit-and 0xff %) (js->clj (.digest m))))))
 
 (defn sha256-hex [text]
-  (->> (.digest (MessageDigest/getInstance "SHA-256") (.getBytes (str text) "UTF-8"))
-       (map #(format "%02x" (bit-and 0xff %)))
-       str/join))
+  (let [h (.createHash (js/require "crypto") "sha256")]
+    (.update h (str text) "utf8")
+    (.digest h "hex")))
 
 (def crypto {:sha256-hex sha256-hex :hmac-sha256 hmac-sha256})
 

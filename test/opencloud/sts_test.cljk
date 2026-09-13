@@ -1,12 +1,12 @@
 (ns opencloud.sts-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.aws :as aws]
             [opencloud.sts :as sts]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/aws.edn"))))
+(def seed (th/read-edn! "resources/seed/aws.edn"))
 
 (defn- assume [role]
   (sts/handle {:seed seed :query {"Action" "AssumeRole" "RoleArn" role

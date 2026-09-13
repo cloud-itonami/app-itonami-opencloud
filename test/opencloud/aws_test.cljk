@@ -1,11 +1,11 @@
 (ns opencloud.aws-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.aws :as aws]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/aws.edn"))))
+(def seed (th/read-edn! "resources/seed/aws.edn"))
 
 (defn- query [action & [params]]
   (aws/handle-query {:seed seed

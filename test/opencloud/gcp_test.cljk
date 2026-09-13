@@ -1,11 +1,11 @@
 (ns opencloud.gcp-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [opencloud.gcp :as gcp]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/gcp.edn"))))
+(def seed (th/read-edn! "resources/seed/gcp.edn"))
 
 (defn- request [path & [overrides]]
   (gcp/handle {:seed (merge seed overrides)

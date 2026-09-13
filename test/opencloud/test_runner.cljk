@@ -24,4 +24,4 @@
                                              'opencloud.registry-test
                                              'opencloud.sts-test
                                              'opencloud.surfaces-test)]
-    (when (pos? (+ fail error)) (System/exit 1))))
+    (when (pos? (+ fail error)) (js/process.exit 1))))

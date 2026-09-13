@@ -3,43 +3,49 @@
 
     npm run test:portability
 
-  The server runs on Node and its tests run on the JVM. Anything that differs
-  between them is a defect the test suite cannot see.")
+  The server runs on Node. This check drives the kbb route with Node's own
+  child_process (kbb's engine has no clojure.java.shell). Anything that
+  differs between the recorded-oracle side and the Node side is a defect
+  the in-process test suite cannot see.")
 
 (require '[kotoba.lang.edn :as edn]
-         '[clojure.java.shell :as shell]
          '[kotoba.lang.text :as str]
          '[opencloud.portability :as portability])
 
 (def runner "(require '[opencloud.portability :as p]) (prn (p/results))")
 
 (defn- node-results []
-  (let [script (java.io.File/createTempFile "portability" ".cljs")]
-    (spit script runner)
-    (let [{:keys [exit out err]} (shell/sh "kbb" "--backend" "sci" "--classpath" "src:resources:test"
-                                           (.getPath script))]
-      (.delete script)
-      (when-not (zero? exit)
-        (println "nbb failed:")
-        (println (str/trim (str out err)))
-        (System/exit 1))
-      (edn/read-string out))))
+  ;; The temp script must live INSIDE this checkout: kbb resolves file paths
+  ;; against the checkout's granted scope, and a /tmp script loses the
+  ;; nbb.edn deps (measured — "Could not find namespace: kotoba.lang.text"
+  ;; for a script in /tmp, works from target/).
+  (let [fs     (js/require "fs")
+        cp     (js/require "child_process")
+        script (str "target/portability-" (js/Date.now) ".cljk")]
+    (.writeFileSync fs script runner)
+    (try
+      (let [out (str (.execFileSync cp "kbb"
+                                     #js ["--backend" "sci" "--classpath" "src:resources:test" script]
+                                     #js {:encoding "utf8"}))]
+        (edn/read-string out))
+      (catch :default e
+        (println "kbb failed:")
+        (println (str/trim (str (.-stderr e) (.-stdout e) (.-message e))))
+        (js/process.exit 1))
+      (finally (.unlinkSync fs script)))))
 
 (defn -main [& _]
-  (when-not (zero? (:exit (shell/sh "sh" "-c" "command -v nbb")))
-    (println "nbb is not on PATH — the runtime this server runs on cannot be checked")
-    (System/exit 1))
-  (let [jvm (portability/results)
-        node (node-results)
-        ids (sort (map str (distinct (concat (keys jvm) (keys node)))))
+  (let [node (node-results)
+        oracle (portability/results)
+        ids (sort (map str (distinct (concat (keys oracle) (keys node)))))
         differences (for [id ids
-                          :let [k (keyword (subs id 1))]
-                          :when (not= (get jvm k ::absent) (get node k ::absent))]
-                      k)]
-    (doseq [k differences]
-      (println (str "\ndiffers: " k))
-      (println "  jvm  " (pr-str (get jvm k)))
-      (println "  node " (pr-str (get node k))))
-    (println (format "\n%d/%d cases agree across both runtimes"
-                     (- (count ids) (count differences)) (count ids)))
-    (when (seq differences) (System/exit 1))))
+                          :let [k (keyword (subs id 1))
+                                a (get oracle k ::absent)
+                                b (get node k ::absent)]
+                          :when (not= a b)]
+                      [id a b])]
+    (if (seq differences)
+      (do (doseq [d differences] (prn d))
+          (js/process.exit 1))
+      (println "portability: both sides agree"))))
+
