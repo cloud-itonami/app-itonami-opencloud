@@ -1,0 +1,40 @@
+(ns opencloud.test-host
+  "The one filesystem touchpoint of the test suite.
+
+  The kbb cutover moved this repo's runtimes off the JVM and the tests kept
+  their `clojure.java.io` requires, which kbb's engine cannot resolve.
+  Reads go through `kotoba.lang.fs` + `kotoba.lang.fs-host`, root-confined
+  at this checkout, derived from this file's own absolute location."
+  (:require [clojure.edn :as edn]
+            [kotoba.lang.fs :as fs]
+            [kotoba.lang.fs-host :as fs-host]
+            [kotoba.lang.text :as str]))
+
+(def ^:private repo-root
+  #?(:clj (let [f (java.io.File. *file*)]
+            (.. f getParentFile getParentFile getParentFile getCanonicalPath))
+     :cljs (let [p  *file* ;; <root>/test/opencloud/test_host.cljk
+                 d  (subs p 0 (str/last-index-of p "/"))
+                 d1 (subs d 0 (str/last-index-of d "/"))
+                 d2 (subs d1 0 (str/last-index-of d1 "/"))]
+             (.realpathSync (js/require "fs") d2))))
+
+(def ^:private filesystem
+  (fs-host/host-filesystem {:root repo-root}))
+
+(defn read-string!
+  "Whole-file read as a string, or nil when the file does not exist.
+  Paths are repo-root-relative (resources/seed/aws.edn)."
+  [path]
+  (when (fs/exists? filesystem path)
+    (fs/read filesystem path)))
+
+(defn read-edn!
+  "Whole-file read + EDN parse; throws when the file is absent."
+  [path]
+  (edn/read-string (fs/read filesystem path)))
+
+(defn exists?
+  "Does a repo-root-relative path exist?"
+  [path]
+  (fs/exists? filesystem path))

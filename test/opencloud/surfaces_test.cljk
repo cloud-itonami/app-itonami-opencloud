@@ -1,6 +1,6 @@
 (ns opencloud.surfaces-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.advisory :as advisory]
@@ -8,9 +8,9 @@
             [opencloud.registry :as registry]
             [opencloud.surfaces :as surfaces]))
 
-(def catalog (edn/read-string (slurp (io/file "resources/surfaces.edn"))))
+(def catalog (th/read-edn! "resources/surfaces.edn"))
 
-(defn- exists? [path] (.exists (io/file path)))
+(defn- exists? [path] (th/exists? path))
 
 ;; What really answers, asked of the handlers rather than assumed. Only the
 ;; surfaces whose handler takes a request without a socket are probed here;
@@ -18,7 +18,7 @@
 ;; complete, which is why `answered` is partial by design.
 
 (def kubernetes-seed
-  (edn/read-string (slurp (io/file "resources/seed/kubernetes.edn"))))
+  (th/read-edn! "resources/seed/kubernetes.edn"))
 
 (def registry-seed
   {:base-url "http://registry.test" :service "opencloud" :token "t"
@@ -30,7 +30,7 @@
                                 :bytes "{}" :length 2}}}}})
 
 (def advisory-seed
-  (edn/read-string (slurp (io/file "resources/seed/advisory.edn"))))
+  (th/read-edn! "resources/seed/advisory.edn"))
 
 (defn- answers? [response]
   (and response (not= 404 (:status response))))

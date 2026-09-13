@@ -1,14 +1,14 @@
 (ns opencloud.ecr-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.ecr :as ecr]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/aws.edn"))))
+(def seed (th/read-edn! "resources/seed/aws.edn"))
 
 (defn- b64 [text]
-  (.encodeToString (java.util.Base64/getEncoder) (.getBytes ^String text "UTF-8")))
+  (js/btoa (js/encodeURIComponent text)))
 
 (defn- ask [headers]
   (ecr/handle {:seed seed :headers headers :encode b64
@@ -30,8 +30,7 @@
   (let [body (:body (ask {"x-amz-target"
                           (str ecr/target-prefix "GetAuthorizationToken")}))
         token (second (re-find #"\"authorizationToken\":\"([^\"]+)\"" body))
-        decoded (String. (.decode (java.util.Base64/getDecoder) ^String token)
-                         "UTF-8")]
+        decoded (js/decodeURIComponent (js/atob token))]
     ;; `AWS` for every account: a client that stores this as a username and
     ;; password pair is storing something that works in one place, briefly
     (is (str/starts-with? decoded "AWS:"))

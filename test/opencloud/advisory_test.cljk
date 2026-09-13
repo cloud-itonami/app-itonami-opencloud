@@ -1,11 +1,11 @@
 (ns opencloud.advisory-test
   (:require [kotoba.lang.edn :as edn]
-            [clojure.java.io :as io]
+            [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [opencloud.advisory :as advisory]))
 
-(def seed (edn/read-string (slurp (io/file "resources/seed/advisory.edn"))))
+(def seed (th/read-edn! "resources/seed/advisory.edn"))
 
 (defn- post [path body]
   (advisory/handle {:seed seed :method "POST" :target path :parsed-body body}))
@@ -47,7 +47,7 @@
       (is (not= body (:body second-page)))
       (is (str/includes? (:body second-page) "GHSA-35jh-r3h4-6jhm"))))
   ;; a token this server did not issue is a client that built its own
-  (is (thrown? clojure.lang.ExceptionInfo
+  (is (thrown? js/Error
                (post "/v1/query" {"package" {"name" "lodash"}
                                   "page_token" "cursor-1"}))))
 
