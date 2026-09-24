@@ -5,7 +5,7 @@
   their `clojure.java.io` requires, which kbb's engine cannot resolve.
   Reads go through `kotoba.lang.fs` + `kotoba.lang.fs-host`, root-confined
   at this checkout, derived from this file's own absolute location."
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [kotoba.lang.fs :as fs]
             [kotoba.lang.fs-host :as fs-host]
             [kotoba.lang.text :as str]))
