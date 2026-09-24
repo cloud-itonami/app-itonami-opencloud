@@ -1,5 +1,5 @@
 (ns opencloud.wire-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [opencloud.wire :as wire]))
 
 (deftest xml-matches-the-shapes-clients-parse

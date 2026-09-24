@@ -1,6 +1,6 @@
 (ns opencloud.registry-test
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [opencloud.registry :as registry]))
 
 (def seed

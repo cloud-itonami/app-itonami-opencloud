@@ -1,5 +1,5 @@
 (ns opencloud.test-runner
-  (:require [clojure.test :as test]
+  (:require [kotoba.test :as test]
             [opencloud.aws-test]
             [opencloud.advisory-test]
             [opencloud.azure-test]

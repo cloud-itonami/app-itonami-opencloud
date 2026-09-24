@@ -3,7 +3,11 @@
  ;; live only in deps.edn are invisible to the engine (measured 2026-09-13 —
  ;; `nbb -m opencloud.server` answered "Could not find namespace:
  ;; kotoba.lang.text"). The git shas are copied byte-for-byte from deps.edn.
- :deps {io.github.kotoba-lang/text {:git/sha "73bdb13ae7a3d004b44bca08be03a3191157a38f"}
+ :deps {
+        ;; kotoba.test (clojure.test-compatible surface), not clojure.test --
+        ;; scripts/migrate-clojure-test-to-kotoba-test.cljk. Explicit floor.
+        io.github.kotoba-lang/test {:git/url "https://github.com/kotoba-lang/test.git"
+                                    :git/sha "2ab4885f99fd25552d380d0f6b0b54c5a72eb7ae"}io.github.kotoba-lang/text {:git/sha "73bdb13ae7a3d004b44bca08be03a3191157a38f"}
         io.github.kotoba-lang/edn  {:git/sha "250f4dafa5f5c7fb3109703496a52866e2a62dcd"}
         ;; test_host reads fixtures through the capability-injected fs seam
         ;; (same adapter pattern as cloud-itonami/cybersecurity, 2026-09-13).
