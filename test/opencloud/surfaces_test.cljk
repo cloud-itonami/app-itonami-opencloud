@@ -2,7 +2,7 @@
   (:require [kotoba.lang.edn :as edn]
             [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [opencloud.advisory :as advisory]
             [opencloud.kubernetes :as kubernetes]
             [opencloud.registry :as registry]

@@ -2,7 +2,7 @@
   (:require [kotoba.lang.edn :as edn]
             [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [opencloud.gcp :as gcp]))
 
 (def seed (th/read-edn! "resources/seed/gcp.edn"))

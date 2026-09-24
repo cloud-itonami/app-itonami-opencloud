@@ -2,7 +2,7 @@
   (:require [kotoba.lang.edn :as edn]
             [opencloud.test-host :as th]
             [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [opencloud.aws :as aws]))
 
 (def seed (th/read-edn! "resources/seed/aws.edn"))
