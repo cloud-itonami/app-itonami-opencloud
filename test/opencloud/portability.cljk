@@ -5,7 +5,7 @@
   verifier that computes differently on the two is worse than no verifier: it
   accepts whatever a client with the same defect produces, which is exactly
   what happened before this file existed."
-  (:require [opencloud.aws :as aws]
+  (:require [kotoba.bytes :as kbytes] [opencloud.aws :as aws]
             [opencloud.sigv4-verify :as sigv4]
             [opencloud.wire :as wire]
             #?@(:cljs [["node:crypto" :as node-crypto]]))
@@ -18,7 +18,7 @@
             (.init mac (SecretKeySpec. (byte-array (map unchecked-byte key*))
                                        "HmacSHA256"))
             (mapv #(bit-and 0xff %)
-                  (.doFinal mac (.getBytes (str message) "UTF-8"))))
+                  (.doFinal mac (kbytes/utf8-bytes (str message)))))
      :cljs (let [buffer (if (string? key*)
                           (js/Buffer.from key* "utf8")
                           (js/Buffer.from (clj->js (vec key*))))]
@@ -31,7 +31,7 @@
   #?(:clj (apply str
                  (map #(format "%02x" (bit-and 0xff %))
                       (.digest (MessageDigest/getInstance "SHA-256")
-                               (.getBytes (str text) "UTF-8"))))
+                               (kbytes/utf8-bytes (str text)))))
      :cljs (-> (.createHash node-crypto "sha256")
                (.update text "utf8")
                (.digest "hex"))))
